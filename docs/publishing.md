@@ -7,6 +7,12 @@
 - **ライセンス：コードは MIT、文章・記録・図は CC BY 4.0。**NasalSeg 由来のデータは CC BY 4.0 のまま、出典と改変内容を表示（build/public/LICENSES.md）。
 - **Pages に出すページ：**換気 3D、換気マップ、統合版、丸み検証、入り口（site/index.html）。旧版の 4 ページ（sinus-humming、sinus-lbm、sinus3d、verify-dlaw）は出さない（古いモデル・振幅更新の不具合のあるエンジン）。
 
+## 公開先（2026-11-22）
+
+- リポジトリ：https://github.com/kaeauiama/sinus-humming-sim （public）。公開用フォルダは `../sinus-humming-sim-public`（git の作者は GitHub の noreply アドレス、リモート origin）。
+- 1 回目：作業リポジトリ ac7caf7 から書き出して公開側 77c762e。push 済み。
+- Pages：.github/workflows/pages.yml。配信元を「GitHub Actions」にするまで configure-pages の手順で失敗する（1 回目はそれで失敗）。URL は https://kaeauiama.github.io/sinus-humming-sim/ 。
+
 ## 点検の結果（2026-11-22）
 
 - 秘密情報（鍵・トークン・パスワード）：全 55 コミットのどこにも無い。
