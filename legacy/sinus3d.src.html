@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>実際の上顎洞で3D流体計算 — ハミングの換気</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #e2e0da;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+    --grid: #ebe9e4; --axis: #b9b7b0;
+    --series-1: #2a78d6; --series-2: #eb6834;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-0: #111110; --surface-1: #1a1a19; --border: #2e2e2b;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+      --grid: #2a2a27; --axis: #55544f;
+      --series-1: #3987e5; --series-2: #d95926;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body.viz-root { background: var(--surface-0); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; line-height: 1.6;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  main { max-width: 1040px; margin: 0 auto; padding: 18px 14px 40px; }
+  h1 { font-size: 21px; margin: 4px 0 2px; }
+  .lede { color: var(--text-secondary); font-size: 14px; margin: 0 0 14px; }
+  h2 { font-size: 15px; margin: 0 0 2px; }
+  .sub { color: var(--text-muted); font-size: 12px; margin: 0 0 8px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  .layout { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  @media (min-width: 860px) { .layout { grid-template-columns: 1.25fr 1fr; align-items: start; } .layout .card { margin-bottom: 0; } .layout { margin-bottom: 12px; } }
+  .simwrap { position: relative; border-radius: 10px; overflow: hidden; background: #0b0e17; aspect-ratio: 1 / 1; touch-action: none; }
+  #sim { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  .hud { position: absolute; left: 10px; top: 8px; font-size: 11px; color: #e8ecff; text-shadow: 0 1px 2px #000; line-height: 1.5; font-variant-numeric: tabular-nums; pointer-events: none; }
+  .hint { position: absolute; right: 10px; bottom: 8px; font-size: 11px; color: #aab3d6; text-shadow: 0 1px 2px #000; pointer-events: none; }
+  .ctl label { display: block; font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+  .ctl .row { display: flex; justify-content: space-between; gap: 8px; }
+  .ctl .row b { color: var(--text-primary); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .ctl input[type=range] { width: 100%; accent-color: var(--series-1); margin: 2px 0 2px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .btns button { font: inherit; font-size: 13px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-0); color: var(--text-primary); cursor: pointer; }
+  .btns button.pri { background: var(--series-1); border-color: var(--series-1); color: #fff; }
+  .btns button:disabled { opacity: .45; cursor: default; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { font: inherit; font-size: 12px; padding: 4px 10px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+  .seg button.on { background: var(--series-1); color: #fff; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-top: 6px; align-items: center; }
+  .sw { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .sw.dash { height: 0; border-top: 2px dashed var(--text-muted); border-radius: 0; vertical-align: 3px; }
+  .sw.dot2 { height: 0; border-top: 2px dotted var(--text-secondary); border-radius: 0; vertical-align: 3px; }
+  .sw.dot { width: 10px; height: 10px; border-radius: 50%; }
+  .ramp { display: inline-block; width: 90px; height: 9px; border-radius: 2px; vertical-align: -1px; margin: 0 6px; }
+  .chart { position: relative; width: 100%; }
+  .chart canvas { display: block; width: 100%; touch-action: pan-y; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-size: 12px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,.12); display: none; z-index: 5; font-variant-numeric: tabular-nums; }
+  .tip .m { color: var(--text-secondary); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-muted); font-weight: 500; font-size: 11px; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .note { font-size: 12px; color: var(--text-secondary); }
+  .eq { font-size: 13px; color: var(--text-secondary); }
+  .eq code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--text-primary); }
+  .err { color: #d03b3b; font-size: 13px; white-space: pre-wrap; }
+  .verdict { font-size: 14px; margin: 8px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--surface-0); border: 1px solid var(--border); }
+  .facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 8px; }
+  @media (min-width: 640px) { .facts { grid-template-columns: repeat(4, 1fr); } }
+  .fact { background: var(--surface-0); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+  .fact .l { font-size: 11px; color: var(--text-muted); }
+  .fact .v { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .fact .v small { font-size: 11px; font-weight: 500; color: var(--text-secondary); margin-left: 2px; }
+</style>
+</head>
+<body class="viz-root">
+<main>
+  <h1>実際の上顎洞で3D流体計算する</h1>
+  <p class="lede">公開CTデータセットNasalSegの1症例（P001）から、上顎洞・自然口・中鼻道まわりの鼻腔を切り出し、3次元の格子ボルツマン法で解きます。ハミングで自然口を往復する空気が、副鼻腔のNOをどれだけ入れ替えるかを測ります。</p>
+
+  <div class="layout">
+    <section class="card">
+      <div class="simwrap" id="simwrap">
+        <canvas id="sim"></canvas>
+        <div class="hud" id="hud">形状を読み込み中…</div>
+        <div class="hint" id="hint">ドラッグで回転・ピンチ／ホイールで拡大</div>
+      </div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="seg" id="viewSeg"></span></div>
+      <div class="legend" id="viewLegend"></div>
+      <div class="err" id="err"></div>
+    </section>
+
+    <section class="card ctl">
+      <h2>実験条件</h2>
+      <p class="sub">自然口だけは形をこちらで与えます（位置と長さはCTから、直径は可変）</p>
+      <div id="ctl"></div>
+      <div class="btns">
+        <button class="pri" id="bRun">この条件で1回測る</button>
+        <button id="bSweep">スイープ（L₀/d = 1〜8）</button>
+        <button id="bStop">停止</button>
+      </div>
+      <p class="note" id="status" style="margin-top:10px">—</p>
+      <table id="cycTable" style="margin-top:6px"></table>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>この症例の形</h2>
+    <p class="sub">NasalSeg P001 の上顎洞（ラベル2）と鼻腔（ラベル4）を、0.4 mmの立方格子に再サンプルしたもの</p>
+    <div class="facts" id="facts"></div>
+    <p class="note" style="margin-top:8px">自然口はCT上で、上顎洞の上内側から中鼻道へ抜ける空気の通り道として写っていました（ラベルの付いていない骨壁の隙間）。CTの解像度（面内0.59 mm、スライス1.5 mm）ではぼやけて最大4 mm程度に見えるため、直径は実験変数として自分で与えます。長さ（骨壁の厚み）はCTの値を使います。</p>
+  </section>
+
+  <section class="card">
+    <h2>混合率 η：仮定、2次元の結果、3次元の測定</h2>
+    <p class="sub">点＝この3D形状での測定（5〜7周期目の平均）。破線＝集中定数モデルの仮定（κ=2）。点線＝2次元LBMで得た死腔モデルを、この自然口の長さに当てはめた予測</p>
+    <div class="chart" id="cEta"></div>
+    <div class="legend">
+      <span><span class="sw dash"></span>仮定（κ=2）</span>
+      <span><span class="sw dot2"></span>2次元の死腔モデル</span>
+      <span><span class="sw dot" style="background:var(--series-1)"></span>3次元の測定</span>
+      <span><span class="sw" style="background:var(--series-2);height:2px;vertical-align:3px"></span>3次元への当てはめ</span>
+    </div>
+    <p class="verdict" id="fitText">スイープを実行すると、2次元の結果と比べた判定がここに出ます。</p>
+  </section>
+
+  <section class="card">
+    <h2>この症例の寸法で集中定数モデルを解き直す</h2>
+    <p class="sub">上顎洞の容積と自然口の長さをこの症例の値に、混合率を3次元の測定に置き換えて、200 Hz・音圧100 Paのハミングでの換気量を自然口の径ごとに計算</p>
+    <div class="chart" id="cOst"></div>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--series-1)"></span>仮定のη（κ=2）</span>
+      <span><span class="sw" style="background:var(--series-2)"></span>3次元で測ったη</span>
+    </div>
+    <p class="verdict" id="ostText">3次元の測定点が3つ以上そろうと計算します。</p>
+  </section>
+
+  <section class="card">
+    <h2>計算の中身と限界</h2>
+    <div class="eq">
+      <p><b>形状</b>　NasalSegのラベルを0.5 mmでぼかしてから0.4 mm格子に再サンプルし、上顎洞と鼻腔のあいだに2セル以上の壁を確保しました。そのうえで、CTで見つかった自然口の位置に、指定した直径の円柱を通します。これが副鼻腔と鼻腔をつなぐ唯一の通路です。鼻腔は自然口の前後約20 mmの範囲で切り取り、後ろの断面から呼気が入って前の断面から出ていきます。</p>
+      <p><b>流れ</b>　D3Q19格子ボルツマン法（BGK＋Smagorinsky）を、流体セルだけを持つ疎な形式で解きます（壁の中のセルはメモリを使いません）。</p>
+      <p><b>振動の駆動とNO</b>　2次元版と同じです。自然口に振動する体積力をかけ、通った量と同じだけ上顎洞全体から一様に吸い込み・湧き出しをさせて、圧縮・膨張を再現します。正味の一方向の流れはゼロに制御します。NOは上顎洞の初期濃度を1として流れに乗せて運び、各周期の上顎洞の総量の減り方から <code>η = V·(1 − C_k/C_{k−1}) / V_in</code> を求めます。</p>
+      <p><b>限界</b>　自然口の直径は約7セルで表しており、境界層の解像は粗いです。レイノルズ数とウォマスリー数は計算を速くするために実物より小さくしています。粘膜の繊毛運動や温度・湿度は入っていません。結果は、1人分の解剖での計算実験です。</p>
+      <p class="note">形状データ：Zhang Y. et al., “NasalSeg: A Dataset for Automatic Segmentation of Nasal Cavity and Paranasal Sinuses from 3D CT Images”, Scientific Data 11 (2024), <a href="https://doi.org/10.5281/zenodo.13893419">doi:10.5281/zenodo.13893419</a>、CC BY 4.0。症例P001のラベル2と4を使用し、再サンプル・切り出し・平滑化・自然口の作り込みの改変を加えています。</p>
+      <p class="note">換気の物理を調べるための計算で、診断や治療効果を示すものではありません。</p>
+    </div>
+  </section>
+</main>
+<div class="tip" id="tip"></div>
+
+<script>
+const GEOM_INFO = /*INFO*/null;
+const GEOM_B64 = "/*B64*/";
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
+const showErr = m => { $('err').textContent += m + '\n'; };
+const NONE = 0xffffffff;
+
+// ---------------- D3Q19 ----------------
+const EX = [0, 1, -1, 0, 0, 0, 0, 1, -1, 1, -1, 0, 0, 1, -1, 1, -1, 0, 0];
+const EY = [0, 0, 0, 1, -1, 0, 0, 1, -1, 0, 0, 1, -1, -1, 1, 0, 0, 1, -1];
+const EZ = [0, 0, 0, 0, 0, 1, -1, 0, 0, 1, -1, 1, -1, 0, 0, -1, 1, -1, 1];
+const WQ = [1 / 3, 1 / 18, 1 / 18, 1 / 18, 1 / 18, 1 / 18, 1 / 18, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36];
+const UPEAK = 0.08;
+const CYCLES = Math.max(4, parseInt(qs.get('cycles')) || 7);
+const MEAS_FROM = 4;
+const SCALAR_EVERY = 4;
+const FIX = 4096;
+
+// ---------------- geometry ----------------
+const G = { nx: 0, ny: 0, nz: 0, dx: 0.4, base: null };
+const F = { nf: 0, dense2f: null, f2dense: null, type: null, nb: null, slab: null, sinusCells: 0, tubeCells: 0, axis: [0, 0, 0], tubeLen: 0, dCells: 0, area: 0, c0: null };
+// types: 1 nasal, 2 sinus, 3 inlet, 4 outlet, 5 ostium tube
+async function loadGeometry() {
+  const bin = Uint8Array.from(atob(GEOM_B64), ch => ch.charCodeAt(0));
+  if (typeof DecompressionStream === 'undefined') throw new Error('このブラウザは DecompressionStream に対応していません。');
+  const ds = new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const buf = new Uint8Array(await new Response(ds).arrayBuffer());
+  [G.nx, G.ny, G.nz] = GEOM_INFO.dims; G.dx = GEOM_INFO.dx; G.base = buf;
+  if (buf.length !== G.nx * G.ny * G.nz) throw new Error('形状データの大きさが合いません');
+}
+function buildFluid(dmm) {
+  const { nx, ny, nz } = G, N = nx * ny * nz;
+  const A = GEOM_INFO.A, B = GEOM_INFO.B;
+  const ax = [B[0] - A[0], B[1] - A[1], B[2] - A[2]];
+  const len = Math.hypot(...ax); const a = ax.map(v => v / len);
+  const r = dmm / 2 / G.dx;
+  const ext = 1.5;
+  const m = new Uint8Array(G.base);
+  const tParam = new Float32Array(N).fill(-1);
+  const lo = [0, 1, 2].map(i => Math.max(1, Math.floor(Math.min(A[i], B[i]) - r - ext - 1)));
+  const hi = [0, 1, 2].map(i => Math.min([nx, ny, nz][i] - 2, Math.ceil(Math.max(A[i], B[i]) + r + ext + 1)));
+  for (let z = lo[2]; z <= hi[2]; z++) for (let y = lo[1]; y <= hi[1]; y++) for (let x = lo[0]; x <= hi[0]; x++) {
+    const px = x - A[0], py = y - A[1], pz = z - A[2];
+    const t = px * a[0] + py * a[1] + pz * a[2];
+    if (t < -ext || t > len + ext) continue;
+    const qx = px - t * a[0], qy = py - t * a[1], qz = pz - t * a[2];
+    if (qx * qx + qy * qy + qz * qz > r * r) continue;
+    const i = (z * ny + y) * nx + x;
+    if (m[i] === 0) { m[i] = 5; tParam[i] = Math.max(0, Math.min(1, t / len)); }
+  }
+  // fluid list
+  const dense2f = new Uint32Array(N).fill(NONE);
+  let nf = 0;
+  for (let i = 0; i < N; i++) if (m[i]) dense2f[i] = nf++;
+  const f2dense = new Uint32Array(nf), type = new Uint32Array(nf), c0 = new Float32Array(nf);
+  let sinusCells = 0, tubeCells = 0;
+  const slab = [];
+  for (let i = 0; i < N; i++) if (m[i]) {
+    const k = dense2f[i]; f2dense[k] = i; type[k] = m[i];
+    if (m[i] === 2) { sinusCells++; c0[k] = 1; }
+    if (m[i] === 5) { tubeCells++; c0[k] = 1 - tParam[i]; if (Math.abs(tParam[i] * len - len / 2) < 0.5) slab.push(k); }
+  }
+  const nb = new Uint32Array(19 * nf);
+  for (let k = 0; k < nf; k++) {
+    const i = f2dense[k], x = i % nx, y = ((i / nx) | 0) % ny, z = (i / (nx * ny)) | 0;
+    for (let q = 0; q < 19; q++) {
+      const sx = x - EX[q], sy = y - EY[q], sz = z - EZ[q];
+      let j = NONE;
+      if (sx >= 0 && sy >= 0 && sz >= 0 && sx < nx && sy < ny && sz < nz) j = dense2f[(sz * ny + sy) * nx + sx];
+      nb[q * nf + k] = j;
+    }
+  }
+  Object.assign(F, { nf, dense2f, f2dense, type, nb, slab: new Uint32Array(slab), sinusCells, tubeCells, axis: a, tubeLen: len, dCells: 2 * r, area: Math.PI * r * r, c0, dmm });
+}
+
+// ---------------- params & UI ----------------
+const P = { d: 3.0, L0d: 2, Re: 300, chRatio: 0.12 };
+const CTL = [
+  { k: 'd', lab: '自然口の直径', unit: 'mm', min: 1.6, max: 4.8, step: 0.2, fmt: v => v.toFixed(1) },
+  { k: 'L0d', lab: 'L₀/d（1周期の流入長さ／直径）', unit: '', min: Math.log10(0.5), max: Math.log10(10), step: 0.01, log: true, fmt: v => v.toFixed(2) },
+  { k: 'Re', lab: 'レイノルズ数 Re', unit: '', min: 100, max: 500, step: 10, fmt: v => v.toFixed(0) },
+  { k: 'chRatio', lab: '鼻腔の呼気流速 ／ 自然口のピーク流速', unit: '', min: 0, max: 0.4, step: 0.01, fmt: v => v.toFixed(2) },
+];
+const inputs = {};
+for (const c of CTL) {
+  const w = document.createElement('label');
+  w.innerHTML = `<span class="row"><span>${c.lab}</span><b><span data-v></span> ${c.unit}</b></span><input type="range" min="${c.min}" max="${c.max}" step="${c.step}" value="${c.log ? Math.log10(P[c.k]) : P[c.k]}">`;
+  const inp = w.querySelector('input'), out = w.querySelector('[data-v]');
+  const sync = () => out.textContent = c.fmt(P[c.k]);
+  inp.addEventListener('input', () => { P[c.k] = c.log ? 10 ** +inp.value : +inp.value; sync(); if (c.k === 'd' && window.__ready && !R.running) { rebuild(); } });
+  sync(); $('ctl').appendChild(w); inputs[c.k] = { inp, sync, c };
+}
+function setParam(k, v) { P[k] = v; const { inp, sync, c } = inputs[k]; inp.value = c.log ? Math.log10(v) : v; sync(); }
+
+let VIEW = 0;
+[['3D', 0], ['水平断（自然口）', 1], ['前額断（自然口）', 2]].forEach(([n, v]) => {
+  const b = document.createElement('button'); b.textContent = n; b.className = v === 0 ? 'on' : '';
+  b.onclick = () => { VIEW = v; [...$('viewSeg').children].forEach(x => x.classList.toggle('on', x === b)); viewLegend(); };
+  $('viewSeg').appendChild(b);
+});
+function viewLegend() {
+  $('hint').style.display = VIEW === 0 ? '' : 'none';
+  $('viewLegend').innerHTML = VIEW === 0
+    ? `<span><span class="sw" style="background:#5ad0ff"></span>上顎洞に入った鼻腔の空気（NOが薄い）</span><span><span class="sw" style="background:#ff8c42"></span>鼻腔に出たNO</span><span><span class="sw" style="background:#fff"></span>自然口</span>`
+    : `NO濃度 0<span class="ramp" style="background:linear-gradient(90deg,#0b1020,#3b1f5e,#b13f64,#f08a4b,#fde6a0)"></span>1（上顎洞の初期値）・灰色＝骨と軟部組織`;
+}
+viewLegend();
+
+// ---------------- WGSL ----------------
+const HDR = /* wgsl */`
+struct U {
+  nf: u32, nx: u32, ny: u32, nz: u32,
+  tau0: f32, cs: f32, uin: f32, invSin: f32,
+  omega: f32, dc: f32, dtc: f32, sgn: f32,
+  slabN: u32, T: u32, F0: f32, kp: f32,
+  ki: f32, ax: f32, ay: f32, az: f32,
+};
+@group(0) @binding(0) var<uniform> u: U;
+const NONE: u32 = 0xffffffffu;
+`;
+const COLLIDE = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> fin: array<f32>;
+@group(0) @binding(2) var<storage, read_write> fout: array<f32>;
+@group(0) @binding(3) var<storage, read> nb: array<u32>;
+@group(0) @binding(4) var<storage, read> ftype: array<u32>;
+@group(0) @binding(5) var<storage, read_write> vel: array<vec4f>;
+@group(0) @binding(6) var<storage, read> ctr: array<u32>;
+@group(0) @binding(7) var<storage, read> stats: array<f32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let k = gid.x;
+  if (k >= u.nf) { return; }
+  var EX = array<f32, 19>(0, 1, -1, 0, 0, 0, 0, 1, -1, 1, -1, 0, 0, 1, -1, 1, -1, 0, 0);
+  var EY = array<f32, 19>(0, 0, 0, 1, -1, 0, 0, 1, -1, 0, 0, 1, -1, -1, 1, 0, 0, 1, -1);
+  var EZ = array<f32, 19>(0, 0, 0, 0, 0, 1, -1, 0, 0, 1, -1, 1, -1, 0, 0, -1, 1, -1, 1);
+  var W = array<f32, 19>(1.0/3.0, 1.0/18.0, 1.0/18.0, 1.0/18.0, 1.0/18.0, 1.0/18.0, 1.0/18.0,
+    1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0);
+  var OPP = array<u32, 19>(0u, 2u, 1u, 4u, 3u, 6u, 5u, 8u, 7u, 10u, 9u, 12u, 11u, 14u, 13u, 16u, 15u, 18u, 17u);
+  let t = ftype[k];
+  var f: array<f32, 19>;
+  var rho = 0.0;
+  var m = vec3f(0.0);
+  for (var i = 0u; i < 19u; i++) {
+    let j = nb[i * u.nf + k];
+    var v: f32;
+    if (j == NONE) { v = fin[OPP[i] * u.nf + k]; } else { v = fin[i * u.nf + j]; }
+    f[i] = v;
+    rho += v;
+    m += v * vec3f(EX[i], EY[i], EZ[i]);
+  }
+  rho = max(rho, 0.2);
+  var uu = m / rho;
+  if (t == 3u) { rho = 1.0; uu = vec3f(0.0, -u.uin, 0.0); }
+  if (t == 4u) { rho = 1.0; }
+  let usq = dot(uu, uu);
+  var fe: array<f32, 19>;
+  var pxx = 0.0; var pyy = 0.0; var pzz = 0.0; var pxy = 0.0; var pxz = 0.0; var pyz = 0.0;
+  for (var i = 0u; i < 19u; i++) {
+    let e = vec3f(EX[i], EY[i], EZ[i]);
+    let eu = dot(e, uu);
+    fe[i] = W[i] * rho * (1.0 + 3.0 * eu + 4.5 * eu * eu - 1.5 * usq);
+    let g = f[i] - fe[i];
+    pxx += e.x * e.x * g; pyy += e.y * e.y * g; pzz += e.z * e.z * g;
+    pxy += e.x * e.y * g; pxz += e.x * e.z * g; pyz += e.y * e.z * g;
+  }
+  let pim = sqrt(pxx * pxx + pyy * pyy + pzz * pzz + 2.0 * (pxy * pxy + pxz * pxz + pyz * pyz));
+  let tau = 0.5 * (u.tau0 + sqrt(u.tau0 * u.tau0 + 18.0 * 1.41421356 * u.cs * u.cs * pim / rho));
+  var keep = 1.0;
+  if (t == 2u) { keep = 1.0 - stats[2] * u.invSin / rho; }
+  var fs = fe;
+  if (t == 5u) {
+    let tt = f32(ctr[0]);
+    let ramp = min(1.0, tt / f32(u.T));
+    let fmag = u.F0 * ramp * cos(u.omega * tt) + stats[5];
+    let u2 = uu + tau * fmag * vec3f(u.ax, u.ay, u.az);
+    let usq2 = dot(u2, u2);
+    for (var i = 0u; i < 19u; i++) {
+      let eu = dot(vec3f(EX[i], EY[i], EZ[i]), u2);
+      fs[i] = W[i] * rho * (1.0 + 3.0 * eu + 4.5 * eu * eu - 1.5 * usq2);
+    }
+  }
+  for (var i = 0u; i < 19u; i++) {
+    var o: f32;
+    if (t == 3u || t == 4u) { o = fe[i]; } else { o = f[i] - (f[i] - fs[i]) / tau; }
+    fout[i * u.nf + k] = o * keep;
+  }
+  vel[k] = vec4f(uu, rho);
+}
+`;
+const FLUX = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> vel: array<vec4f>;
+@group(0) @binding(2) var<storage, read_write> ctr: array<u32>;
+@group(0) @binding(3) var<storage, read_write> stats: array<f32>;
+@group(0) @binding(4) var<storage, read_write> ring: array<f32>;
+@group(0) @binding(5) var<storage, read> slab: array<u32>;
+var<workgroup> acc: array<f32, 64>;
+@compute @workgroup_size(64)
+fn main(@builtin(local_invocation_index) li: u32) {
+  let a = vec3f(u.ax, u.ay, u.az);
+  var s = 0.0;
+  var i = li;
+  loop {
+    if (i >= u.slabN) { break; }
+    s += dot(vel[slab[i]].xyz, a);
+    i += 64u;
+  }
+  acc[li] = s;
+  workgroupBarrier();
+  for (var st = 32u; st > 0u; st = st >> 1u) {
+    if (li < st) { acc[li] += acc[li + st]; }
+    workgroupBarrier();
+  }
+  if (li == 0u) {
+    let q = acc[0];
+    stats[0] += max(q, 0.0);
+    stats[1] += max(-q, 0.0);
+    stats[2] = q;
+    let slot = ctr[0] % u.T;
+    let sum = stats[3] + q - ring[slot];
+    ring[slot] = q;
+    stats[3] = sum;
+    let qbar = sum / f32(u.T);
+    stats[4] += qbar;
+    stats[5] = -u.kp * qbar - u.ki * stats[4];
+    ctr[0] += 1u;
+  }
+}
+`;
+const SAMPLER = (buf) => /* wgsl */`
+fn cellPos(d: u32) -> vec3f {
+  return vec3f(f32(d % u.nx), f32((d / u.nx) % u.ny), f32(d / (u.nx * u.ny)));
+}
+fn samp(p: vec3f, own: u32) -> vec3f {
+  let pc = clamp(p, vec3f(0.0), vec3f(f32(u.nx) - 1.001, f32(u.ny) - 1.001, f32(u.nz) - 1.001));
+  let b = floor(pc);
+  let t = pc - b;
+  let x0 = u32(b.x); let y0 = u32(b.y); let z0 = u32(b.z);
+  var sw = 0.0; var sv = 0.0; var lo = 1e9; var hi = -1e9;
+  for (var c = 0u; c < 8u; c++) {
+    let dx = c & 1u; let dy = (c >> 1u) & 1u; let dz = (c >> 2u) & 1u;
+    let d = ((z0 + dz) * u.ny + (y0 + dy)) * u.nx + (x0 + dx);
+    let j = dmap[d];
+    if (j == NONE) { continue; }
+    let wx = select(1.0 - t.x, t.x, dx == 1u);
+    let wy = select(1.0 - t.y, t.y, dy == 1u);
+    let wz = select(1.0 - t.z, t.z, dz == 1u);
+    let w = wx * wy * wz;
+    let v = ${buf}[j];
+    sw += w; sv += w * v;
+    lo = min(lo, v); hi = max(hi, v);
+  }
+  if (sw < 1e-6) { let v = ${buf}[own]; return vec3f(v, v, v); }
+  return vec3f(sv / sw, lo, hi);
+}
+`;
+const ADV1 = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> cin: array<f32>;
+@group(0) @binding(2) var<storage, read_write> cout: array<f32>;
+@group(0) @binding(3) var<storage, read> vel: array<vec4f>;
+@group(0) @binding(4) var<storage, read> dmap: array<u32>;
+@group(0) @binding(5) var<storage, read> fpos: array<u32>;
+` + SAMPLER('cin') + /* wgsl */`
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let k = gid.x;
+  if (k >= u.nf) { return; }
+  let p = cellPos(fpos[k]);
+  cout[k] = samp(p - vel[k].xyz * u.dtc * u.sgn, k).x;
+}
+`;
+const ADV3 = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> c0: array<f32>;
+@group(0) @binding(2) var<storage, read> c1: array<f32>;
+@group(0) @binding(3) var<storage, read_write> c2: array<f32>;
+@group(0) @binding(4) var<storage, read> vel: array<vec4f>;
+@group(0) @binding(5) var<storage, read> dmap: array<u32>;
+@group(0) @binding(6) var<storage, read> fpos: array<u32>;
+@group(0) @binding(7) var<storage, read> ftype: array<u32>;
+@group(0) @binding(8) var<storage, read> nb: array<u32>;
+` + SAMPLER('c0') + /* wgsl */`
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let k = gid.x;
+  if (k >= u.nf) { return; }
+  if (ftype[k] == 3u) { c2[k] = 0.0; return; }
+  let p = cellPos(fpos[k]);
+  let s = samp(p - vel[k].xyz * u.dtc, k);
+  var cn = c1[k] + 0.5 * (c0[k] - c2[k]);
+  cn = clamp(cn, s.y, s.z);
+  let own = c0[k];
+  var lap = -6.0 * own;
+  for (var q = 1u; q <= 6u; q++) {
+    let j = nb[q * u.nf + k];
+    if (j == NONE) { lap += own; } else { lap += c0[j]; }
+  }
+  cn += u.dc * u.dtc * lap;
+  c2[k] = clamp(cn, 0.0, 1.0);
+}
+`;
+const SUM = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> c: array<f32>;
+@group(0) @binding(2) var<storage, read> ftype: array<u32>;
+@group(0) @binding(3) var<storage, read_write> csum: array<atomic<u32>>;
+var<workgroup> acc: array<u32, 64>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) li: u32) {
+  var v = 0u;
+  if (gid.x < u.nf) {
+    if (ftype[gid.x] == 2u) { v = u32(round(clamp(c[gid.x], 0.0, 1.0) * ${FIX}.0)); }
+  }
+  acc[li] = v;
+  workgroupBarrier();
+  for (var st = 32u; st > 0u; st = st >> 1u) {
+    if (li < st) { acc[li] += acc[li + st]; }
+    workgroupBarrier();
+  }
+  if (li == 0u) { atomicAdd(&csum[0], acc[0]); }
+}
+`;
+const RENDER = /* wgsl */`
+struct RU {
+  eye: vec4f, fwd: vec4f, right: vec4f, up: vec4f,
+  dims: vec4f, p: vec4f, ost: vec4f,
+};
+@group(0) @binding(0) var<uniform> r: RU;
+@group(0) @binding(1) var<storage, read> dmap: array<u32>;
+@group(0) @binding(2) var<storage, read> ftype: array<u32>;
+@group(0) @binding(3) var<storage, read> c: array<f32>;
+const NONE: u32 = 0xffffffffu;
+struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+@vertex
+fn vs(@builtin(vertex_index) vi: u32) -> VO {
+  var P = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  var o: VO;
+  o.pos = vec4f(P[vi], 0.0, 1.0);
+  o.uv = P[vi];
+  return o;
+}
+fn ramp(t: f32) -> vec3f {
+  let s0 = vec3f(0.043, 0.063, 0.125); let s1 = vec3f(0.231, 0.122, 0.369);
+  let s2 = vec3f(0.694, 0.247, 0.392); let s3 = vec3f(0.941, 0.541, 0.294); let s4 = vec3f(0.992, 0.902, 0.627);
+  let x = clamp(t, 0.0, 1.0) * 4.0;
+  if (x < 1.0) { return mix(s0, s1, x); }
+  if (x < 2.0) { return mix(s1, s2, x - 1.0); }
+  if (x < 3.0) { return mix(s2, s3, x - 2.0); }
+  return mix(s3, s4, x - 3.0);
+}
+fn lookup(p: vec3f) -> vec2f {
+  // returns (type, c); type 0 = solid / outside
+  if (any(p < vec3f(0.0)) || any(p >= r.dims.xyz)) { return vec2f(0.0, 0.0); }
+  let q = vec3u(p);
+  let d = (q.z * u32(r.dims.y) + q.y) * u32(r.dims.x) + q.x;
+  let j = dmap[d];
+  if (j == NONE) { return vec2f(0.0, 0.0); }
+  return vec2f(f32(ftype[j]), c[j]);
+}
+fn hash(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(12.9898, 78.233))) * 43758.5453); }
+@fragment
+fn fs(i: VO, @builtin(position) fc: vec4f) -> @location(0) vec4f {
+  let mode = u32(r.p.z);
+  let bg = vec3f(0.043, 0.055, 0.09);
+  if (mode != 0u) {
+    // slice through the ostium
+    let aspect = r.p.x;
+    var w = 0.0; var h = 0.0;
+    if (mode == 1u) { w = r.dims.x; h = r.dims.y; } else { w = r.dims.x; h = r.dims.z; }
+    let s = min(2.0 * aspect / w, 2.0 / h) * 0.96;
+    let px = (i.uv.x * aspect) / s + w * 0.5;
+    let py = (-i.uv.y) / s + h * 0.5;
+    if (px < 0.0 || py < 0.0 || px >= w || py >= h) { return vec4f(bg, 1.0); }
+    var pos = vec3f(px, py, r.ost.z);
+    if (mode == 2u) { pos = vec3f(px, r.ost.y, h - py); }
+    let L = lookup(pos);
+    if (L.x < 0.5) { return vec4f(0.22, 0.23, 0.26, 1.0); }
+    var col = ramp(sqrt(L.y));
+    if (L.x > 4.5) { col = mix(col, vec3f(1.0), 0.25); }
+    return vec4f(col, 1.0);
+  }
+  let aspect = r.p.x; let tf = r.p.y;
+  let dir = normalize(r.fwd.xyz + i.uv.x * aspect * tf * r.right.xyz + i.uv.y * tf * r.up.xyz);
+  let ro = r.eye.xyz;
+  let inv = 1.0 / dir;
+  let t0 = (vec3f(0.0) - ro) * inv; let t1 = (r.dims.xyz - ro) * inv;
+  let tmin = max(max(min(t0.x, t1.x), min(t0.y, t1.y)), min(t0.z, t1.z));
+  let tmax = min(min(max(t0.x, t1.x), max(t0.y, t1.y)), max(t0.z, t1.z));
+  if (tmax <= max(tmin, 0.0)) { return vec4f(bg, 1.0); }
+  let stepL = 0.75;
+  var t = max(tmin, 0.0) + hash(fc.xy) * stepL;
+  var acc = vec3f(0.0); var a = 0.0;
+  var prev = 0.0;
+  for (var s = 0; s < 700; s++) {
+    if (t > tmax || a > 0.97) { break; }
+    let L = lookup(ro + dir * t);
+    let ty = L.x;
+    var cs = vec3f(0.0); var as_ = 0.0;
+    if ((ty < 0.5) != (prev < 0.5)) {
+      let side = max(ty, prev);
+      if (side > 1.5 && side < 2.5) { cs = vec3f(0.95, 0.62, 0.38); as_ = 0.10; }
+      else if (side > 4.5) { cs = vec3f(1.0, 1.0, 1.0); as_ = 0.35; }
+      else { cs = vec3f(0.45, 0.62, 0.95); as_ = 0.055; }
+    } else if (ty > 1.5 && ty < 2.5) {
+      let fresh = 1.0 - L.y;
+      cs = vec3f(0.35, 0.82, 1.0); as_ = clamp(fresh * 0.22, 0.0, 1.0);
+    } else if (ty > 4.5) {
+      cs = vec3f(1.0, 1.0, 1.0); as_ = 0.06;
+    } else if (ty > 0.5) {
+      cs = vec3f(1.0, 0.55, 0.26); as_ = clamp(L.y * 0.16, 0.0, 1.0);
+    }
+    acc += (1.0 - a) * as_ * cs;
+    a += (1.0 - a) * as_;
+    prev = ty;
+    t += stepL;
+  }
+  return vec4f(acc + (1.0 - a) * bg, 1.0);
+}
+`;
+
+// ---------------- GPU ----------------
+let device, ctx, format;
+let pCol, pFlux, pAdv1, pAdv3, pSum, pRen;
+let B = {}, bgCol = [], bgFlux, bgAdv1 = [], bgAdv2 = [], bgAdv3 = [], bgSum = [], bgRen = [];
+let uBuf, uBufFwd, rBuf;
+const uData = new ArrayBuffer(80), uF = new Float32Array(uData), uU = new Uint32Array(uData);
+const rData = new Float32Array(28);
+
+async function checkShader(m, name) {
+  if (!m.getCompilationInfo) return;
+  const info = await m.getCompilationInfo();
+  for (const x of info.messages) if (x.type === 'error') throw new Error(`${name} ${x.lineNum}:${x.linePos} ${x.message}`);
+}
+async function initGPU() {
+  if (!navigator.gpu) throw new Error('このブラウザはWebGPUに対応していません（PCのChrome / Edge / Safari 26以降でお試しください）。');
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+  if (!adapter) throw new Error('GPUアダプタを取得できませんでした。');
+  const need = 19 * 4 * 420000;
+  const lim = adapter.limits;
+  device = await adapter.requestDevice({ requiredLimits: {
+    maxStorageBufferBindingSize: Math.min(lim.maxStorageBufferBindingSize, Math.max(need, 134217728)),
+    maxBufferSize: Math.min(lim.maxBufferSize, Math.max(need, 268435456)),
+    maxStorageBuffersPerShaderStage: Math.min(lim.maxStorageBuffersPerShaderStage, 10),
+  } });
+  device.lost.then(i => showErr('GPUデバイスが失われました: ' + i.message));
+  let errN = 0;
+  device.addEventListener('uncapturederror', e => { if (errN++ < 3) showErr('WebGPUエラー: ' + e.error.message); });
+  ctx = $('sim').getContext('webgpu');
+  format = navigator.gpu.getPreferredCanvasFormat();
+  ctx.configure({ device, format, alphaMode: 'opaque' });
+  const mk = async (code, name) => { const m = device.createShaderModule({ code, label: name }); await checkShader(m, name); return m; };
+  const [mCol, mFlux, mAdv1, mAdv3, mSum, mRen] = await Promise.all([mk(COLLIDE, 'collide'), mk(FLUX, 'flux'), mk(ADV1, 'adv1'), mk(ADV3, 'adv3'), mk(SUM, 'sum'), mk(RENDER, 'render')]);
+  const cp = m => device.createComputePipeline({ layout: 'auto', compute: { module: m, entryPoint: 'main' } });
+  pCol = cp(mCol); pFlux = cp(mFlux); pAdv1 = cp(mAdv1); pAdv3 = cp(mAdv3); pSum = cp(mSum);
+  pRen = device.createRenderPipeline({ layout: 'auto', vertex: { module: mRen, entryPoint: 'vs' }, fragment: { module: mRen, entryPoint: 'fs', targets: [{ format }] }, primitive: { topology: 'triangle-list' } });
+  uBuf = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  uBufFwd = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  rBuf = device.createBuffer({ size: rData.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+}
+function setupBuffers() {
+  for (const k in B) B[k].destroy?.();
+  B = {};
+  const SB = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
+  const nf = F.nf;
+  const mkb = (size, label) => device.createBuffer({ size: Math.max(16, Math.ceil(size / 4) * 4), usage: SB, label });
+  B.fA = mkb(19 * nf * 4, 'fA'); B.fB = mkb(19 * nf * 4, 'fB');
+  B.nb = mkb(19 * nf * 4, 'nb'); B.type = mkb(nf * 4, 'type'); B.fpos = mkb(nf * 4, 'fpos');
+  B.dmap = mkb(F.dense2f.byteLength, 'dmap'); B.vel = mkb(nf * 16, 'vel');
+  B.ctr = mkb(16, 'ctr'); B.stats = mkb(32, 'stats'); B.csum = mkb(16, 'csum'); B.ring = mkb(4 * 16384, 'ring');
+  B.slab = mkb(Math.max(4, F.slab.byteLength), 'slab');
+  B.c = [mkb(nf * 4, 'c0'), mkb(nf * 4, 'c1'), mkb(nf * 4, 'c2')];
+  const q = device.queue;
+  q.writeBuffer(B.nb, 0, F.nb); q.writeBuffer(B.type, 0, F.type); q.writeBuffer(B.fpos, 0, F.f2dense);
+  q.writeBuffer(B.dmap, 0, F.dense2f); q.writeBuffer(B.slab, 0, F.slab);
+  const bg = (p, list) => device.createBindGroup({ layout: p.getBindGroupLayout(0), entries: list.map((b, i) => ({ binding: i, resource: { buffer: b } })) });
+  bgCol = [bg(pCol, [uBuf, B.fA, B.fB, B.nb, B.type, B.vel, B.ctr, B.stats]), bg(pCol, [uBuf, B.fB, B.fA, B.nb, B.type, B.vel, B.ctr, B.stats])];
+  bgFlux = bg(pFlux, [uBuf, B.vel, B.ctr, B.stats, B.ring, B.slab]);
+  bgAdv1 = []; bgAdv2 = []; bgAdv3 = []; bgSum = []; bgRen = [];
+  for (let k = 0; k < 3; k++) {
+    const c0 = B.c[k], c1 = B.c[(k + 1) % 3], c2 = B.c[(k + 2) % 3];
+    bgAdv1.push(bg(pAdv1, [uBuf, c0, c1, B.vel, B.dmap, B.fpos]));
+    bgAdv2.push(bg(pAdv1, [uBufFwd, c1, c2, B.vel, B.dmap, B.fpos]));
+    bgAdv3.push(bg(pAdv3, [uBuf, c0, c1, c2, B.vel, B.dmap, B.fpos, B.type, B.nb]));
+    bgSum.push(bg(pSum, [uBuf, c0, B.type, B.csum]));
+    bgRen.push(bg(pRen, [rBuf, B.dmap, B.type, c0]));
+  }
+}
+
+// ---------------- run state ----------------
+const R = { running: false, warm: 0, warmDone: false, cur: 0, ck: 0, gstep: 0, stepInCycle: 0, cycle: 0, T: 1000, omega: 0, F0: 0, target: 0, Cprev: 0, results: [], onDone: null, runId: 0 };
+const measured = [];
+
+function writeUniform() {
+  const nu = UPEAK * F.dCells / P.Re;
+  uU[0] = F.nf; uU[1] = G.nx; uU[2] = G.ny; uU[3] = G.nz;
+  uF[4] = 3 * nu + 0.5; uF[5] = 0.14; uF[6] = P.chRatio * UPEAK; uF[7] = 1 / F.sinusCells;
+  uF[8] = R.omega; uF[9] = nu / 0.8; uF[10] = SCALAR_EVERY; uF[11] = 1;
+  uU[12] = F.slab.length; uU[13] = R.T; uF[14] = R.warm > 0 ? 0 : R.F0;
+  const wc = 2 * Math.PI / (4 * R.T), slabCells = Math.max(1, F.slab.length);
+  uF[15] = R.warm > 0 ? 0 : 2 * 0.8 * wc / slabCells; uF[16] = R.warm > 0 ? 0 : wc * wc / slabCells;
+  uF[17] = F.axis[0]; uF[18] = F.axis[1]; uF[19] = F.axis[2];
+  device.queue.writeBuffer(uBuf, 0, uData);
+  uF[11] = -1; device.queue.writeBuffer(uBufFwd, 0, uData);
+}
+function resetFlow() {
+  const nf = F.nf, f = new Float32Array(19 * nf);
+  const uin = P.chRatio * UPEAK;
+  for (let k = 0; k < nf; k++) {
+    const t = F.type[k];
+    const uy = (t === 1 || t === 3 || t === 4) ? -uin * 0.3 : 0;
+    for (let q = 0; q < 19; q++) { const eu = EY[q] * uy; f[q * nf + k] = WQ[q] * (1 + 3 * eu + 4.5 * eu * eu - 1.5 * uy * uy); }
+  }
+  device.queue.writeBuffer(B.fA, 0, f); device.queue.writeBuffer(B.fB, 0, f);
+  device.queue.writeBuffer(B.vel, 0, new Float32Array(nf * 4));
+  resetScalar();
+  R.cur = 0; R.gstep = 0;
+}
+function resetScalar() {
+  for (const b of B.c) device.queue.writeBuffer(b, 0, F.c0);
+  device.queue.writeBuffer(B.ctr, 0, new Uint32Array(4));
+  device.queue.writeBuffer(B.stats, 0, new Float32Array(8));
+  device.queue.writeBuffer(B.ring, 0, new Float32Array(16384));
+  R.ck = 0;
+}
+function rebuild() {
+  buildFluid(P.d);
+  setupBuffers();
+  R.T = 1000; R.omega = 2 * Math.PI / 1000; R.F0 = 0; R.warm = 0;
+  writeUniform();
+  resetFlow();
+  showFacts();
+}
+function startRun(L0d, onDone) {
+  R.runId++;
+  if (Math.abs(F.dmm - P.d) > 1e-9) rebuild();
+  R.target = L0d * F.dCells * F.area;
+  const L0 = L0d * F.dCells;
+  R.T = Math.min(16000, Math.max(200, Math.round(Math.PI * L0 / UPEAK)));
+  R.omega = 2 * Math.PI / R.T;
+  R.F0 = UPEAK * R.omega * 1.5;
+  R.cycle = 0; R.stepInCycle = 0; R.results = []; R.Cprev = F.sinusCells; R.onDone = onDone;
+  R.warm = Math.round(Number(qs.get('warm')) || 2500); R.warmDone = false;
+  resetFlow(); writeUniform();
+  R.running = true;
+  renderTable();
+}
+function encodeSteps(enc, n) {
+  const pass = enc.beginComputePass();
+  const wg = Math.ceil(F.nf / 64);
+  for (let s = 0; s < n; s++) {
+    pass.setPipeline(pCol); pass.setBindGroup(0, bgCol[R.cur]); pass.dispatchWorkgroups(wg);
+    pass.setPipeline(pFlux); pass.setBindGroup(0, bgFlux); pass.dispatchWorkgroups(1);
+    R.cur ^= 1; R.gstep++;
+    if (R.gstep % SCALAR_EVERY === 0) {
+      pass.setPipeline(pAdv1);
+      pass.setBindGroup(0, bgAdv1[R.ck]); pass.dispatchWorkgroups(wg);
+      pass.setBindGroup(0, bgAdv2[R.ck]); pass.dispatchWorkgroups(wg);
+      pass.setPipeline(pAdv3); pass.setBindGroup(0, bgAdv3[R.ck]); pass.dispatchWorkgroups(wg);
+      R.ck = (R.ck + 2) % 3;
+    }
+  }
+  pass.end();
+}
+function encodeCycleEnd(enc, cycle) {
+  enc.clearBuffer(B.csum);
+  const pass = enc.beginComputePass();
+  pass.setPipeline(pSum); pass.setBindGroup(0, bgSum[R.ck]); pass.dispatchWorkgroups(Math.ceil(F.nf / 64));
+  pass.end();
+  const rb = device.createBuffer({ size: 32, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  enc.copyBufferToBuffer(B.stats, 0, rb, 0, 16);
+  enc.copyBufferToBuffer(B.csum, 0, rb, 16, 16);
+  enc.clearBuffer(B.stats, 0, 8);
+  const runId = R.runId;
+  return () => rb.mapAsync(GPUMapMode.READ).then(() => {
+    const ab = rb.getMappedRange();
+    const st = new Float32Array(ab.slice(0, 16)), cs = new Uint32Array(ab.slice(16, 32));
+    rb.unmap(); rb.destroy();
+    if (runId !== R.runId) return;
+    onCycle(cycle, st[0], st[1], cs[0] / FIX);
+  });
+}
+function onCycle(k, inflow, outflow, C) {
+  const Vex = F.sinusCells * (1 - C / R.Cprev);
+  const eta = inflow > 0 ? Vex / inflow : NaN;
+  const L0d = inflow / F.area / F.dCells;
+  R.results.push({ k, inflow, outflow, C, L0d, eta });
+  R.Cprev = C;
+  if (!isFinite(C) || !isFinite(inflow)) { showErr('計算が発散しました。Reを下げてください。'); R.running = false; }
+  if (inflow > 1e-6) {
+    const g = Math.max(0.5, Math.min(2, R.target / inflow));
+    R.F0 = Math.min(5e-3, R.F0 * Math.pow(g, 0.8));
+    writeUniform();
+  }
+  renderTable();
+  if (k === CYCLES - 1) finishRun();
+}
+function finishRun() {
+  const use = R.results.filter(r => r.k >= MEAS_FROM && isFinite(r.eta));
+  if (use.length) {
+    const eta = use.reduce((a, r) => a + r.eta, 0) / use.length;
+    const L0d = use.reduce((a, r) => a + r.L0d, 0) / use.length;
+    measured.push({ L0d, eta: Math.max(0, Math.min(1.2, eta)), d: F.dmm, lnd: F.tubeLen / F.dCells, Re: P.Re, ch: P.chRatio });
+    measured.sort((a, b) => a.L0d - b.L0d);
+    drawCharts();
+  }
+  const cb = R.onDone; R.onDone = null;
+  if (cb) cb();
+}
+function setStatus(t) { $('status').textContent = t; }
+function renderTable() {
+  const rows = R.results.map(r => `<tr><td>${r.k + 1}${r.k >= MEAS_FROM ? '' : '（助走）'}</td><td class="num">${r.L0d.toFixed(2)}</td><td class="num">${isFinite(r.eta) ? (r.eta * 100).toFixed(0) + '%' : '-'}</td><td class="num">${(r.C / F.sinusCells * 100).toFixed(1)}%</td></tr>`).join('');
+  $('cycTable').innerHTML = `<tr><th>周期</th><th style="text-align:right">L₀/d 実測</th><th style="text-align:right">η</th><th style="text-align:right">上顎洞NO残存</th></tr>` + rows;
+}
+const SWEEP = [1, 2, 4, 8];
+let sweepIdx = -1;
+function runSweep() {
+  sweepIdx = 0;
+  const next = () => {
+    if (sweepIdx < 0) return;
+    if (sweepIdx >= SWEEP.length) { sweepIdx = -1; setStatus('スイープ完了。下のグラフに結果が出ています。'); enableButtons(true); return; }
+    const v = SWEEP[sweepIdx++];
+    setParam('L0d', v);
+    setStatus(`スイープ中 ${sweepIdx}/${SWEEP.length}：L₀/d = ${v}（自然口 ${P.d.toFixed(1)} mm）`);
+    startRun(v, next);
+  };
+  enableButtons(false); next();
+}
+function enableButtons(on) { $('bRun').disabled = !on; $('bSweep').disabled = !on; inputs.d.inp.disabled = !on; }
+$('bRun').onclick = () => { if (!window.__ready) return; enableButtons(false); setStatus(`実行中：L₀/d = ${P.L0d.toFixed(2)}、自然口 ${P.d.toFixed(1)} mm`); startRun(P.L0d, () => { enableButtons(true); setStatus('完了しました。'); }); };
+$('bSweep').onclick = () => { if (window.__ready) runSweep(); };
+$('bStop').onclick = () => { R.running = false; R.runId++; sweepIdx = -1; enableButtons(true); setStatus('停止しました。'); };
+
+// ---------------- camera ----------------
+const cam = { yaw: -2.3, pitch: 0.35, dist: 1.0 };
+const cv = $('sim');
+const pointers = new Map();
+cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); });
+cv.addEventListener('pointermove', e => {
+  if (!pointers.has(e.pointerId)) return;
+  const p = pointers.get(e.pointerId);
+  if (pointers.size === 1 && VIEW === 0) { cam.yaw -= (e.clientX - p.x) * 0.008; cam.pitch = Math.max(-1.4, Math.min(1.4, cam.pitch + (e.clientY - p.y) * 0.008)); }
+  else if (pointers.size === 2) {
+    const ids = [...pointers.keys()], o = pointers.get(ids[0] === e.pointerId ? ids[1] : ids[0]);
+    const d0 = Math.hypot(p.x - o.x, p.y - o.y), d1 = Math.hypot(e.clientX - o.x, e.clientY - o.y);
+    if (d0 > 0) cam.dist = Math.max(0.35, Math.min(2.5, cam.dist * d0 / d1));
+  }
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+});
+const endP = e => pointers.delete(e.pointerId);
+cv.addEventListener('pointerup', endP); cv.addEventListener('pointercancel', endP);
+cv.addEventListener('wheel', e => { e.preventDefault(); cam.dist = Math.max(0.35, Math.min(2.5, cam.dist * Math.exp(e.deltaY * 0.001))); }, { passive: false });
+
+function writeRender(aspect) {
+  const tgt = [(GEOM_INFO.A[0] + G.nx / 2) / 2, (GEOM_INFO.A[1] + G.ny / 2) / 2, (GEOM_INFO.A[2] + G.nz / 2) / 2];
+  const D = Math.max(G.nx, G.ny, G.nz) * 1.55 * cam.dist;
+  const eye = [tgt[0] + D * Math.cos(cam.pitch) * Math.cos(cam.yaw), tgt[1] + D * Math.cos(cam.pitch) * Math.sin(cam.yaw), tgt[2] + D * Math.sin(cam.pitch)];
+  let fw = [tgt[0] - eye[0], tgt[1] - eye[1], tgt[2] - eye[2]]; const fl = Math.hypot(...fw); fw = fw.map(v => v / fl);
+  const upw = [0, 0, 1];
+  let rt = [fw[1] * upw[2] - fw[2] * upw[1], fw[2] * upw[0] - fw[0] * upw[2], fw[0] * upw[1] - fw[1] * upw[0]]; const rl = Math.hypot(...rt); rt = rt.map(v => v / rl);
+  const up = [rt[1] * fw[2] - rt[2] * fw[1], rt[2] * fw[0] - rt[0] * fw[2], rt[0] * fw[1] - rt[1] * fw[0]];
+  rData.set([...eye, 0, ...fw, 0, ...rt, 0, ...up, 0, G.nx, G.ny, G.nz, 0, aspect, Math.tan(0.36), VIEW, 0, GEOM_INFO.A[0], GEOM_INFO.A[1], GEOM_INFO.A[2], 0]);
+  device.queue.writeBuffer(rBuf, 0, rData);
+}
+
+// ---------------- loop ----------------
+let spf = 30, lastT = 0, sps = 0, spsAcc = 0, spsT = 0;
+function sizeCanvas() {
+  const w = cv.clientWidth, h = cv.clientHeight;
+  const sc = Math.min(devicePixelRatio || 1, 1.25);
+  const W = Math.max(64, Math.round(w * sc)), H = Math.max(64, Math.round(h * sc));
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+}
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dtF = lastT ? now - lastT : 16; lastT = now;
+  if (R.running) { if (dtF > 30) spf = Math.max(2, spf * 0.85); else if (dtF < 22) spf = Math.min(600, spf * 1.08); }
+  sizeCanvas();
+  const enc = device.createCommandEncoder();
+  const after = [];
+  if (R.running && R.warmDone) { R.warmDone = false; resetScalar(); writeUniform(); }
+  if (R.running && R.warm > 0) {
+    const n = Math.min(Math.max(1, Math.round(spf)), R.warm);
+    encodeSteps(enc, n); R.warm -= n; spsAcc += n;
+    if (R.warm <= 0) R.warmDone = true;
+  } else if (R.running) {
+    let budget = Math.max(1, Math.round(spf));
+    while (budget > 0 && R.running) {
+      const n = Math.min(budget, R.T - R.stepInCycle);
+      encodeSteps(enc, n);
+      budget -= n; R.stepInCycle += n; spsAcc += n;
+      if (R.stepInCycle >= R.T) {
+        after.push(encodeCycleEnd(enc, R.cycle));
+        R.cycle++; R.stepInCycle = 0;
+        if (R.cycle >= CYCLES) R.running = false;
+      }
+    }
+  }
+  writeRender(cv.width / cv.height);
+  const rp = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
+  rp.setPipeline(pRen); rp.setBindGroup(0, bgRen[R.ck]); rp.draw(3); rp.end();
+  device.queue.submit([enc.finish()]);
+  after.forEach(fn => fn());
+  if (now - spsT > 500) { sps = spsAcc / ((now - spsT) / 1000); spsAcc = 0; spsT = now; }
+  const st = R.running && (R.warm > 0 || R.warmDone) ? '準備中（流れを落ち着かせています）' : (R.running || R.cycle > 0) ? `周期 ${Math.min(R.cycle + 1, CYCLES)}/${CYCLES}・位相 ${(R.stepInCycle / R.T * 360).toFixed(0)}°` : '待機中';
+  $('hud').innerHTML = `${st}<br>${Math.round(sps).toLocaleString()} ステップ/秒・流体 ${F.nf.toLocaleString()} セル`;
+}
+
+// ---------------- facts & charts ----------------
+function showFacts() {
+  const items = [
+    ['上顎洞の容積', (F.sinusCells * G.dx ** 3 / 1000).toFixed(1), 'mL'],
+    ['自然口の長さ（骨壁）', (F.tubeLen * G.dx).toFixed(1), 'mm'],
+    ['自然口の直径（設定）', F.dmm.toFixed(1), 'mm'],
+    ['格子', `${G.nx}×${G.ny}×${G.nz}`, `${G.dx} mm`],
+  ];
+  $('facts').innerHTML = items.map(([l, v, u]) => `<div class="fact"><div class="l">${l}</div><div class="v">${v}<small>${u}</small></div></div>`).join('');
+}
+const css = n => getComputedStyle(document.body).getPropertyValue(n).trim();
+const tip = $('tip');
+function makeChart(id, aspect, minH) {
+  const host = $(id); const c = document.createElement('canvas'); host.appendChild(c);
+  const ch = { host, cv: c, ctx: c.getContext('2d'), aspect, minH, hover: null };
+  c.addEventListener('pointermove', e => { const r = c.getBoundingClientRect(); ch.hover = { x: e.clientX - r.left, y: e.clientY - r.top, cx: e.clientX, cy: e.clientY }; drawCharts(); });
+  c.addEventListener('pointerleave', () => { ch.hover = null; tip.style.display = 'none'; drawCharts(); });
+  return ch;
+}
+function sizeChart(ch) {
+  const w = ch.host.clientWidth, h = Math.max(ch.minH, Math.round(w * ch.aspect)), dpr = Math.min(devicePixelRatio || 1, 2);
+  ch.cv.width = Math.round(w * dpr); ch.cv.height = Math.round(h * dpr); ch.cv.style.height = h + 'px';
+  ch.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ch.w = w; ch.h = h; return ch.ctx;
+}
+function showTip(html, cx, cy) {
+  tip.innerHTML = html; tip.style.display = 'block';
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let x = cx + 12 + scrollX, y = cy - th - 10 + scrollY;
+  if (x + tw > scrollX + innerWidth - 6) x = cx - tw - 12 + scrollX;
+  if (y < scrollY + 4) y = cy + 14 + scrollY;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+const cEta = makeChart('cEta', 0.5, 220), cOst = makeChart('cOst', 0.36, 190);
+const etaAssumed = x => 1 - Math.exp(-x / 2);
+const etaDV = (x, lnd, a, m) => m * Math.max(0, 1 - a * lnd / x);
+const DV2D = { a: 0.60, m: 0.70 };
+function fit3D() {
+  if (measured.length < 3) return null;
+  let best = null;
+  for (let a = 0.0; a <= 2.0001; a += 0.01) for (let m = 0.2; m <= 1.2001; m += 0.01) {
+    const e = measured.reduce((acc, p) => acc + (etaDV(p.L0d, p.lnd, a, m) - p.eta) ** 2, 0);
+    if (!best || e < best.e) best = { a, m, e };
+  }
+  best.rmse = Math.sqrt(best.e / measured.length);
+  best.rmse2D = Math.sqrt(measured.reduce((acc, p) => acc + (etaDV(p.L0d, p.lnd, DV2D.a, DV2D.m) - p.eta) ** 2, 0) / measured.length);
+  best.rmseA = Math.sqrt(measured.reduce((acc, p) => acc + (etaAssumed(p.L0d) - p.eta) ** 2, 0) / measured.length);
+  return best;
+}
+function drawEta() {
+  const ch = cEta, ctx = sizeChart(ch);
+  ctx.clearRect(0, 0, ch.w, ch.h);
+  const box = { x: 40, y: 16, w: ch.w - 52, h: ch.h - 16 - 38 };
+  const lx0 = Math.log10(0.4), lx1 = Math.log10(12);
+  const X = v => box.x + (Math.log10(v) - lx0) / (lx1 - lx0) * box.w;
+  const Y = v => box.y + box.h - v / 1.05 * box.h;
+  ctx.font = '11px system-ui, sans-serif';
+  ctx.strokeStyle = css('--grid'); ctx.fillStyle = css('--text-muted'); ctx.lineWidth = 1;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) { const y = Y(v); ctx.beginPath(); ctx.moveTo(box.x, y + .5); ctx.lineTo(box.x + box.w, y + .5); ctx.stroke(); ctx.fillText((v * 100) + '%', box.x - 5, y); }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (const v of [0.5, 1, 2, 4, 8]) ctx.fillText(v, X(v), box.y + box.h + 5);
+  ctx.strokeStyle = css('--axis'); ctx.beginPath(); ctx.moveTo(box.x, box.y + box.h + .5); ctx.lineTo(box.x + box.w, box.y + box.h + .5); ctx.stroke();
+  ctx.fillStyle = css('--text-secondary'); ctx.textAlign = 'right'; ctx.fillText('L₀/d（対数軸）', box.x + box.w, box.y + box.h + 20);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText('混合率 η', 2, box.y - 2);
+  const curve = (fn, color, dash, width) => { ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash); ctx.beginPath();
+    for (let i = 0; i <= 160; i++) { const v = 10 ** (lx0 + i / 160 * (lx1 - lx0)); const y = Y(fn(v)); i ? ctx.lineTo(X(v), y) : ctx.moveTo(X(v), y); } ctx.stroke(); ctx.restore(); };
+  const lnd = F.dCells ? F.tubeLen / F.dCells : 0.7;
+  curve(etaAssumed, css('--text-muted'), [5, 4], 1.5);
+  curve(v => etaDV(v, lnd, DV2D.a, DV2D.m), css('--text-secondary'), [1.5, 3], 2);
+  const fit = fit3D();
+  if (fit) curve(v => etaDV(v, lnd, fit.a, fit.m), css('--series-2'), [], 2);
+  let hi = null;
+  measured.forEach(m => { const x = X(m.L0d), y = Y(m.eta);
+    if (ch.hover && Math.hypot(ch.hover.x - x, ch.hover.y - y) < 14) hi = m;
+    ctx.fillStyle = css('--series-1'); ctx.strokeStyle = css('--surface-1'); ctx.lineWidth = 2;
+    ctx.globalAlpha = Math.abs(m.d - P.d) < 0.01 ? 1 : 0.4; ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.fill(); ctx.stroke(); ctx.globalAlpha = 1; });
+  if (hi) showTip(`<b>L₀/d = ${hi.L0d.toFixed(2)}</b>（自然口 ${hi.d.toFixed(1)} mm）<br><span class="m">η（3D）</span> ${(hi.eta * 100).toFixed(0)}%<br><span class="m">2次元の死腔モデル</span> ${(etaDV(hi.L0d, hi.lnd, DV2D.a, DV2D.m) * 100).toFixed(0)}%<br><span class="m">仮定（κ=2）</span> ${(etaAssumed(hi.L0d) * 100).toFixed(0)}%`, ch.hover.cx, ch.hover.cy);
+  else if (ch.hover) tip.style.display = 'none';
+  if (fit) {
+    const better = fit.rmse2D < fit.rmseA * 0.7;
+    $('fitText').innerHTML = `3次元の測定 ${measured.length} 点に対する誤差は、仮定（κ=2）で ${(fit.rmseA * 100).toFixed(0)}ポイント、2次元の死腔モデルで <b>${(fit.rmse2D * 100).toFixed(0)}ポイント</b>。` +
+      (better ? '2次元で見つけた「空気柱が自然口の長さを超えた分だけが混ざる」という関係は、実際の形状でもおおむね成り立っています。' : '2次元の死腔モデルは、実際の形状ではあまり当てはまりません。') +
+      ` 3次元に当てはめ直すと a = ${fit.a.toFixed(2)}、m = ${fit.m.toFixed(2)}（2次元は a = 0.60、m = 0.70）。` +
+      (fit.m > DV2D.m + 0.1 ? ' 3次元の渦輪のほうが空洞の奥まで届き、混ざりやすい結果です。' : fit.m < DV2D.m - 0.1 ? ' 3次元のほうが混ざりにくい結果です。' : '');
+  } else if (measured.length) $('fitText').textContent = `測定点 ${measured.length} 個。3個以上で判定します（スイープ推奨）。`;
+}
+const RHO = 1.14, C0 = 350, MU = 1.9e-5;
+function lumped(d, etaFn, V, Lmm, f = 200, P0 = 100, K = 1.5) {
+  const r = d / 2e3, A = Math.PI * r * r, L = Lmm / 1e3, Le = L + 1.7 * r, Vm = V * 1e-6, w = 2 * Math.PI * f;
+  const M = RHO * Le / A, C = Vm / (RHO * C0 * C0), X = w * M - 1 / (w * C);
+  const Rl = Math.max(8 * MU * L / (Math.PI * r ** 4), (L / (Math.PI * r ** 3)) * Math.sqrt(2 * RHO * MU * w)) + RHO * w * w / (2 * Math.PI * C0);
+  const k = (8 / (3 * Math.PI)) * K * RHO / (2 * A * A);
+  let lo = 0, hi = P0 / Math.sqrt(Rl * Rl + X * X);
+  for (let i = 0; i < 60; i++) { const q = (lo + hi) / 2; if (q * Math.sqrt((Rl + k * q) ** 2 + X * X) > P0) hi = q; else lo = q; }
+  const Vin = 2 * lo / w, L0d = Vin / A / (d / 1e3), eta = etaFn(L0d, Lmm / d);
+  return { Qex: eta * Vin * f * 1e6, L0d, eta, f0: C0 / (2 * Math.PI) * Math.sqrt(A / (Vm * Le)) };
+}
+function drawOst() {
+  const ch = cOst, ctx = sizeChart(ch);
+  ctx.clearRect(0, 0, ch.w, ch.h);
+  const DS = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0];
+  const V = F.sinusCells ? F.sinusCells * G.dx ** 3 / 1000 : 14, Lmm = F.tubeLen ? F.tubeLen * G.dx : 2;
+  const fit = fit3D();
+  const a = DS.map(d => lumped(d, x => etaAssumed(x), V, Lmm));
+  const b = fit ? DS.map(d => lumped(d, (x, l) => etaDV(x, l, fit.a, fit.m), V, Lmm)) : null;
+  const box = { x: 40, y: 16, w: ch.w - 52, h: ch.h - 16 - 36 };
+  const ymax = Math.max(...a.map(o => o.Qex), ...(b ? b.map(o => o.Qex) : [0])) * 1.18 || 1;
+  const Y = v => box.y + box.h - v / ymax * box.h;
+  ctx.font = '11px system-ui, sans-serif';
+  ctx.strokeStyle = css('--grid'); ctx.fillStyle = css('--text-muted'); ctx.lineWidth = 1; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  const step = ymax > 16 ? 8 : ymax > 8 ? 4 : ymax > 4 ? 2 : 1;
+  for (let v = 0; v <= ymax; v += step) { const y = Y(v); ctx.beginPath(); ctx.moveTo(box.x, y + .5); ctx.lineTo(box.x + box.w, y + .5); ctx.stroke(); ctx.fillText(v, box.x - 5, y); }
+  ctx.fillStyle = css('--text-secondary'); ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText('換気量 (mL/s)', 2, box.y - 2);
+  const slot = box.w / DS.length, bw = Math.min(24, slot * 0.3);
+  let hiI = -1; if (ch.hover) { const i = Math.floor((ch.hover.x - box.x) / slot); if (i >= 0 && i < DS.length) hiI = i; }
+  const bar = (x, v, color) => { const y = Y(v), h = box.y + box.h - y, r = Math.min(4, h); ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(x, box.y + box.h); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.lineTo(x + bw - r, y); ctx.quadraticCurveTo(x + bw, y, x + bw, y + r); ctx.lineTo(x + bw, box.y + box.h); ctx.fill(); };
+  DS.forEach((d, i) => { const cx = box.x + slot * (i + .5);
+    ctx.globalAlpha = hiI === -1 || hiI === i ? 1 : .45;
+    if (b) { bar(cx - bw - 1, a[i].Qex, css('--series-1')); bar(cx + 1, b[i].Qex, css('--series-2')); } else bar(cx - bw / 2, a[i].Qex, css('--series-1'));
+    ctx.globalAlpha = 1; ctx.fillStyle = css('--text-muted'); ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(d + ' mm', cx, box.y + box.h + 5); });
+  ctx.strokeStyle = css('--axis'); ctx.beginPath(); ctx.moveTo(box.x, box.y + box.h + .5); ctx.lineTo(box.x + box.w, box.y + box.h + .5); ctx.stroke();
+  if (hiI >= 0) { const d = DS[hiI];
+    showTip(`<b>直径 ${d} mm</b>（共鳴 ${a[hiI].f0.toFixed(0)} Hz、L₀ = ${(a[hiI].L0d * d).toFixed(1)} mm）<br><span class="m">仮定のη</span> ${(a[hiI].eta * 100).toFixed(0)}% → ${a[hiI].Qex.toFixed(2)} mL/s` + (b ? `<br><span class="m">3次元のη</span> ${(b[hiI].eta * 100).toFixed(0)}% → ${b[hiI].Qex.toFixed(2)} mL/s<br><span class="m">5秒で入れ替わる割合</span> ${((1 - Math.exp(-5 * b[hiI].Qex / V)) * 100).toFixed(0)}%` : ''), ch.hover.cx, ch.hover.cy); }
+  if (b) {
+    const best = b.reduce((bi, o, i) => o.Qex > b[bi].Qex ? i : bi, 0);
+    const cur = lumped(P.d, (x, l) => etaDV(x, l, fit.a, fit.m), V, Lmm);
+    $('ostText').innerHTML = `この症例（上顎洞 ${V.toFixed(1)} mL、自然口の長さ ${Lmm.toFixed(1)} mm）では、換気量が最大になるのは自然口が <b>${DS[best]} mm</b> のとき（共鳴 ${b[best].f0.toFixed(0)} Hz）。` +
+      ` いま設定している ${P.d.toFixed(1)} mm では、5秒のハミングで上顎洞の空気の <b>${((1 - Math.exp(-5 * cur.Qex / V)) * 100).toFixed(0)}%</b> が入れ替わる計算です（共鳴 ${cur.f0.toFixed(0)} Hz）。` +
+      ' 自然口が短い（骨壁が薄い）ので、2次元で問題になった「空気柱が自然口の中で往復するだけ」になる範囲は狭く、ここでも換気量を主に決めているのは共鳴です。';
+  }
+}
+function drawCharts() { drawEta(); drawOst(); }
+window.__s3 = { measured, drawCharts };
+addEventListener('resize', drawCharts);
+
+// ---------------- boot ----------------
+(async () => {
+  try {
+    await loadGeometry();
+    buildFluid(P.d);
+    showFacts(); drawCharts();
+    await initGPU();
+    setupBuffers();
+    R.T = 1000; R.omega = 2 * Math.PI / 1000; writeUniform(); resetFlow();
+    window.__ready = true;
+    requestAnimationFrame(frame);
+    setStatus('「この条件で1回測る」か「スイープ」を押してください。PCのGPUで1〜数分が目安です。');
+    if (qs.has('autorun')) { setParam('L0d', parseFloat(qs.get('autorun'))); $('bRun').click(); }
+    if (qs.has('autosweep')) runSweep();
+  } catch (e) { showErr(e.message || String(e)); }
+})();
+})();
+</script>
+</body>
+</html>

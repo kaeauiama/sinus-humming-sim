@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ハミングと副鼻腔の換気</title>
+<meta name="description" content="ハミングで副鼻腔の空気がどれだけ入れ替わるかを、共鳴モデル・3D 流体計算・NO モデルで調べる研究用のページ">
+<style>
+:root {
+  --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #e2e0da;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface-0: #111110; --surface-1: #1a1a19; --border: #2e2e2b;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+  }
+}
+:root[data-theme="dark"] {
+  --surface-0: #111110; --surface-1: #1a1a19; --border: #2e2e2b;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+  font: 15px/1.7 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif; }
+main { max-width: 720px; margin: 0 auto; padding: 20px 16px 48px; }
+h1 { font-size: 22px; margin: 4px 0 6px; }
+h2 { font-size: 16px; margin: 0 0 4px; }
+p { margin: 6px 0; }
+.lead { color: var(--text-secondary); }
+.warn { border-left: 3px solid var(--s2); padding: 6px 10px; background: var(--surface-1); border-radius: 6px; font-size: 14px; }
+.cards { display: grid; gap: 10px; margin: 16px 0; }
+a.card { display: block; text-decoration: none; color: inherit; background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 12px; padding: 12px 14px; }
+a.card:hover, a.card:focus-visible { border-color: var(--s1); outline: none; }
+a.card h2 { color: var(--s1); }
+.env { font-size: 12.5px; color: var(--text-muted); margin-top: 4px; }
+.main-card { border-color: var(--s1); }
+.note { font-size: 13px; color: var(--text-secondary); }
+.note a, .lead a { color: var(--s1); }
+footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--text-muted); }
+footer a { color: var(--s1); }
+</style>
+</head>
+<body>
+<main>
+  <h1>ハミングと副鼻腔の換気</h1>
+  <p class="lead">ハミングで副鼻腔の空気がどれだけ入れ替わるかを、共鳴モデル・3D の流体計算（格子ボルツマン法）・鼻の NO（一酸化窒素）のモデルで調べる研究用のページです。</p>
+  <p class="warn">これは換気の物理を調べるための計算です。診断や治療の効果を示すものではありません。</p>
+
+  <div class="cards">
+    <a class="card main-card" href="hum-3d.html">
+      <h2>換気 3D</h2>
+      <p>マイクで声の高さを取り、架空の頭の中で副鼻腔の空気が入れ替わる様子をその場で見ます。上顎洞をタップすると拡大し、洞の中に新しい空気が広がる様子（事前に回した 3D 流体計算）を見られます。</p>
+      <p class="env">スマホ・パソコン。マイクは Safari / Chrome で（アプリの中のブラウザでは使えないことがあります）</p>
+    </a>
+    <a class="card" href="hum-map.html">
+      <h2>換気マップ</h2>
+      <p>4 種類の副鼻腔について、音の高さごとの換気、拡散、粘膜の腫れ・粘液、倍音、鼻の NO の出方を計算します。</p>
+      <p class="env">スマホ・パソコン</p>
+    </a>
+    <a class="card" href="sinus3d-integrated.html">
+      <h2>統合版（実際の上顎洞）</h2>
+      <p>CT データ（NasalSeg）の上顎洞で 3D 流体計算を回し、NO のモデルにつないで文献の測定と比べます。</p>
+      <p class="env">パソコンの Chrome / Edge（WebGPU が必要）</p>
+    </a>
+    <a class="card" href="verify-rounding.html">
+      <h2>丸み検証</h2>
+      <p>自然口の縁の丸みが換気をどう変えるかを、3D 流体計算で確かめます。</p>
+      <p class="env">パソコンの Chrome / Edge（WebGPU が必要）</p>
+    </a>
+  </div>
+
+  <p class="note">モデルの式、計算の確かめ方、分かったことと分かっていないことは、<a href="https://github.com/kaeauiama/sinus-humming-sim">リポジトリ</a>の docs/ と results/ にあります。いちばん大きな仮定は鼻腔内の音圧（実効 180 Pa）で、これは測られた値ではなく、人の NO の測定に合わせた値です。</p>
+
+  <footer>
+    <p>コードは MIT、文章・図は CC BY 4.0（<a href="https://github.com/kaeauiama/sinus-humming-sim/blob/main/LICENSES.md">LICENSES.md</a>）。</p>
+    <p>実形状の格子：Zhang Y. et al., “NasalSeg: A Dataset for Automatic Segmentation of Nasal Cavity and Paranasal Sinuses from 3D CT Images”, Scientific Data 11 (2024), <a href="https://doi.org/10.5281/zenodo.13893419">doi:10.5281/zenodo.13893419</a>、<a href="https://creativecommons.org/licenses/by/4.0/deed.ja">CC BY 4.0</a>。症例 P001 を改変して使用。</p>
+  </footer>
+</main>
+</body>
+</html>

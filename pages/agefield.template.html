@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>事前計算 洞内の広がり</title>
+<style>
+:root { color-scheme: dark; }
+body { margin: 0; padding: 12px 16px; background: #111; color: #eee; font: 14px/1.6 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+h1 { font-size: 16px; margin: 0 0 6px; }
+.simwrap { position: relative; width: 220px; height: 160px; }
+canvas { width: 220px; height: 160px; display: block; background: #000; }
+.hud { font-size: 12px; color: #aaa; margin-top: 4px; }
+pre { font-size: 12px; white-space: pre-wrap; color: #ccc; }
+.err { color: #f86; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>事前計算：洞の中で新しい空気がどう広がるか（3D 格子ボルツマン法）</h1>
+<p id="status">準備中…</p>
+<div class="simwrap"><canvas id="sim"></canvas></div>
+<div class="hud" id="hud"></div>
+<div class="err" id="err"></div>
+<pre id="log"></pre>
+<script>
+// Long run on one geometry: tune the drive to the stroke of the lumped model, freeze it, run CYCLES cycles and
+// save the scalar field at the cycles in ?snaps= through tools/devserver.py (POST /save). Assembled by
+// build/assemble.py agefield <geometry> <out>; open from the "dev" server, e.g.
+// http://localhost:8767/test/out/agefield_040.html?auto&cycles=1500&tag=fict_max_040
+const GEOM_INFO = /*INFO*/null;
+const GEOM_B64 = "/*B64*/";
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
+const showErr = m => { $('err').textContent += m + '\n'; };
+const NONE = 0xffffffff;
+/*CONSTS*/
+const G = { nx: 0, ny: 0, nz: 0, dx: 0.4, base: null };
+const F = { nf: 0, dense2f: null, f2dense: null, type: null, nb: null, slab: null, sinusCells: 0, tubeCells: 0, axis: [0, 0, 0], tubeLen: 0, dCells: 0, area: 0, c0: null };
+const P = { Re: +qs.get('re') || 300, chRatio: qs.has('ch') ? +qs.get('ch') : 0.12 };
+let VIEW = 0;
+/*WGSL*/
+/*GPUVARS*/
+const R = { running: false, warm: 0, warmDone: false, cur: 0, ck: 0, gstep: 0, stepInCycle: 0, cycle: 0, T: 1000, omega: 0, F0: 0, target: 0, Cprev: 0, results: [], onDone: null, runId: 0 };
+let spf = 30, lastT = 0, sps = 0, spsAcc = 0, spsT = 0;
+/*CAMERA*/
+/*LOADGEOM*/
+/*FUNCS*/
+
+// ---------------- lumped resonance (same as the pages) ----------------
+const C = { f: +qs.get('f') || 150, P0: +qs.get('P0') || 130, d: +qs.get('d') || 2.8 };
+const RHO = 1.14, C0 = 350, MU = 1.9e-5, KLOSS = 1.5;
+const MIX = { m: 0.695, x0: 1.68, n: 1.76, k: 1.15, p: 0.57, lam: 48 };
+const sat = (v, v0, n) => 1 - Math.exp(-Math.pow(Math.max(v, 0) / v0, n));
+const mixLaw = (x, ld) => MIX.m * sat(x, MIX.x0, MIX.n) * sat(x * ld, MIX.k, MIX.p) * Math.exp(-ld / MIX.lam);
+function lumped(V, d, Lmm, f, P0) {
+  const r = d / 2e3, A = Math.PI * r * r, L = Lmm / 1e3, Le = L + 1.7 * r, Vm = V * 1e-6, w = 2 * Math.PI * f;
+  const M = RHO * Le / A, Cc = Vm / (RHO * C0 * C0), X = w * M - 1 / (w * Cc);
+  const Rl = Math.max(8 * MU * L / (Math.PI * r ** 4), (L / (Math.PI * r ** 3)) * Math.sqrt(2 * RHO * MU * w)) + RHO * w * w / (2 * Math.PI * C0);
+  const k = (8 / (3 * Math.PI)) * KLOSS * RHO / (2 * A * A);
+  let lo = 0, hi = P0 / Math.sqrt(Rl * Rl + X * X);
+  for (let i = 0; i < 60; i++) { const q = (lo + hi) / 2; if (q * Math.sqrt((Rl + k * q) ** 2 + X * X) > P0) hi = q; else lo = q; }
+  const Vin = 2 * lo / w, L0 = Vin / A;
+  return { Vin, L0mm: L0 * 1e3, x: L0 / L, ld: L / (2 * r), f0: C0 / (2 * Math.PI) * Math.sqrt(A / (Vm * Le)) };
+}
+
+// ---------------- protocol ----------------
+const SNAPS = new Set((qs.get('snaps') || '10,25,50,100,200,400,700,1000,1500').split(',').map(Number));
+const TAG = (qs.get('tag') || 'agefield').replace(/[^A-Za-z0-9_-]/g, '');
+const RUNIN = 4, TOL = 0.08, TUNE_MAX = 10;
+const LOG = []; let META = null, t0 = 0, freezeAt = -1, pending = 0;
+async function post(name, data) {
+  pending++;
+  try { const r = await fetch('/save?name=' + encodeURIComponent(TAG + '/' + name), { method: 'POST', body: data }); if (!r.ok) showErr(`保存に失敗しました（${name}: ${r.status}）。tools/devserver.py から開いていますか？`); }
+  catch (e) { showErr(`保存に失敗しました（${name}: ${e.message}）`); }
+  pending--;
+}
+function startRun(L0d) {
+  R.runId++;
+  R.target = L0d * F.dCells * F.area;
+  const L0 = L0d * F.dCells;
+  R.T = Math.min(16000, Math.max(200, Math.round(Math.PI * L0 / UPEAK)));
+  R.omega = 2 * Math.PI / R.T;
+  R.F0 = 0.75 * L0 * R.omega * R.omega;
+  R.cycle = 0; R.stepInCycle = 0; R.done = false; R.wait = false; R.phase = 'tune'; R.Cprev = F.sinusCells;
+  R.warm = Math.round(Number(qs.get('warm')) || 2000); R.warmDone = false;
+  resetFlow(); writeUniform();
+  R.running = true; t0 = performance.now();
+}
+// called by the frame loop right after each cycle end (build/assemble.py patches it in)
+function snapHook(enc, cycle) {
+  if (R.phase === 'run') R.wait = false;      // amplitude is frozen: no need to stop at cycle ends any more
+  const n = cycle + 1;
+  if (!SNAPS.has(n)) return null;
+  const size = F.nf * 4, rb = device.createBuffer({ size, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  enc.copyBufferToBuffer(B.c[R.ck], 0, rb, 0, size);
+  return () => rb.mapAsync(GPUMapMode.READ).then(() => {
+    const c = new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
+    const u8 = new Uint8Array(G.nx * G.ny * G.nz).fill(255);       // 255 = solid; fluid c in 0..254
+    for (let k = 0; k < F.nf; k++) u8[F.f2dense[k]] = Math.round(Math.min(1, Math.max(0, c[k])) * 254);
+    post(`snap_${String(n).padStart(4, '0')}.u8`, u8);
+  });
+}
+function onCycle(k, inflow, outflow, Cc) {
+  if (R.done) return;
+  const Vex = F.sinusCells * (1 - Cc / R.Cprev), eta = inflow > 0 ? Vex / inflow : NaN, L0d = inflow / F.area / F.dCells;
+  R.Cprev = Cc;
+  if (!isFinite(Cc) || !isFinite(inflow)) { showErr('計算が発散しました。'); R.running = false; R.done = true; return; }
+  const err = inflow / R.target - 1;
+  if (R.phase === 'tune') {
+    if ((k >= 2 && Math.abs(err) < TOL) || k >= TUNE_MAX) { R.phase = 'run'; freezeAt = k; }
+    else { const g = Math.max(0.4, Math.min(2.5, R.target / Math.max(inflow, 1e-6))); R.F0 = Math.min(1.5e-2, R.F0 * Math.pow(g, 0.9)); writeUniform(); }
+  }
+  LOG.push([k, +inflow.toFixed(3), +(Cc / F.sinusCells).toFixed(6), +eta.toFixed(4), R.phase === 'run' ? 1 : 0]);
+  if (qs.has('dbg') && (k < 12 || k % 50 === 0)) console.log('cyc', k, R.phase, 'F0', R.F0.toExponential(3), 'in', inflow.toFixed(2), 'tgt', R.target.toFixed(2), 'eta', eta.toFixed(3), 'C', (Cc / F.sinusCells).toFixed(4));
+  const el = (performance.now() - t0) / 1000;
+  $('status').textContent = `周期 ${k + 1}/${CYCLES}（${R.phase === 'run' ? '振幅固定' : '振幅を調整中'}）・洞に残るもとの空気 ${(Cc / F.sinusCells * 100).toFixed(2)}%・経過 ${el.toFixed(0)} 秒・残り約 ${((CYCLES - k - 1) * el / (k + 1)).toFixed(0)} 秒`;
+  if (k >= CYCLES - 1) finish();
+}
+async function finish() {
+  R.done = true; R.running = false;
+  while (pending > 0) await new Promise(r => setTimeout(r, 100));
+  const out = { meta: { ...META, freezeAt, F0: R.F0, seconds: (performance.now() - t0) / 1000, stepsPerSecond: sps }, cols: ['cycle', 'inflow_cells', 'C_sinus', 'eta', 'frozen'], log: LOG };
+  await post('cycles.json', JSON.stringify(out));
+  $('status').textContent = '完了';
+  $('log').textContent += `完了：${LOG.length} 周期、${out.meta.seconds.toFixed(0)} 秒。最後に洞に残るもとの空気 ${(LOG[LOG.length - 1][2] * 100).toFixed(2)}%\n`;
+}
+
+(async () => {
+  try {
+    await initGPU(); await loadGeometry();
+    buildFluid(C.d);
+    if (!F.slab.length || F.slab.length > 1.4 * F.area) showErr(`駆動層の大きさが不正です（${F.slab.length} セル、断面 ${F.area.toFixed(0)} セル）。`);
+    setupBuffers();
+    R.T = 1000; R.omega = 2 * Math.PI / 1000; R.F0 = 0; R.warm = 0; writeUniform(); resetFlow();
+    const V = F.sinusCells * G.dx ** 3 / 1000, Lmm = F.tubeLen * G.dx, lp = lumped(V, C.d, Lmm, C.f, C.P0);
+    const L0d = qs.has('l0d') ? +qs.get('l0d') : lp.L0mm / C.d;
+    META = { geometry: GEOM_INFO.source, dims: GEOM_INFO.dims, dx: G.dx, nf: F.nf, sinusCells: F.sinusCells, tubeCells: F.tubeCells, slab: F.slab.length,
+      area: F.area, dCells: F.dCells, tubeLen: F.tubeLen, V_mL: V, L_mm: Lmm, C, Re: P.Re, chRatio: P.chRatio, lumped: lp, L0d, mixLaw: mixLaw(lp.x, lp.ld), cycles: CYCLES, snaps: [...SNAPS] };
+    $('log').textContent = `洞 ${V.toFixed(2)} mL、自然口 ${C.d} mm × ${Lmm.toFixed(2)} mm、流体 ${F.nf.toLocaleString()} セル\n${C.f} Hz・${C.P0} Pa：空気柱 ${lp.L0mm.toFixed(2)} mm（自然口の長さの ${lp.x.toFixed(2)} 倍）、混合の式の見込み ${(mixLaw(lp.x, lp.ld) * 100).toFixed(0)}%\n`;
+    requestAnimationFrame(frame);
+    if (qs.has('auto')) startRun(L0d);
+    else $('status').textContent = '?auto で開始します';
+  } catch (e) { showErr(e.message || String(e)); }
+})();
+})();
+</script>
+</body>
+</html>

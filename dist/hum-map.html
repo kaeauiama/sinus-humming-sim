@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ハミング換気マップ — どの高さで、どの副鼻腔が換気されるか</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #e2e0da;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+    --grid: #ebe9e4; --axis: #b9b7b0;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-0: #111110; --surface-1: #1a1a19; --border: #2e2e2b;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+      --grid: #2a2a27; --axis: #55544f;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body.viz-root { background: var(--surface-0); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; line-height: 1.6;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  main { max-width: 980px; margin: 0 auto; padding: 18px 14px 40px; }
+  h1 { font-size: 21px; margin: 4px 0 2px; }
+  .lede { color: var(--text-secondary); font-size: 14px; margin: 0 0 14px; }
+  h2 { font-size: 15px; margin: 0 0 2px; }
+  .sub { color: var(--text-muted); font-size: 12px; margin: 0 0 8px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  .chart { position: relative; width: 100%; }
+  .chart canvas { display: block; width: 100%; touch-action: pan-y; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-size: 12px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,.12); display: none; z-index: 5; font-variant-numeric: tabular-nums; }
+  .tip .m { color: var(--text-secondary); }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--text-muted); font-weight: 500; font-size: 11px; }
+  td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  .tablewrap { overflow-x: auto; }
+  .tablewrap table { min-width: 600px; }
+  .tablewrap td:first-child { white-space: nowrap; }
+  .note { font-size: 12px; color: var(--text-secondary); }
+  .verdict { font-size: 14px; margin: 10px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--surface-0); border: 1px solid var(--border); }
+  .ctl label { display: block; font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+  .ctl .row { display: flex; justify-content: space-between; gap: 8px; }
+  .ctl .row b { color: var(--text-primary); font-variant-numeric: tabular-nums; font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: var(--s1); margin: 2px 0 2px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .btns button { font: inherit; font-size: 13px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-0); color: var(--text-primary); cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+  .btns button.pri { background: var(--s1); border-color: var(--s1); color: #fff; }
+  .btns button.hold.on { background: var(--s2); border-color: var(--s2); color: #fff; }
+  .live { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  @media (min-width: 760px) { .live { grid-template-columns: 220px 1fr; } }
+  .pitch { background: var(--surface-0); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .pitch .l { font-size: 11px; color: var(--text-muted); }
+  .pitch .v { font-size: 34px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .pitch .v small { font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-left: 3px; }
+  .meter { height: 6px; background: var(--grid); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--s1); transition: width .08s; }
+  .bars .b { margin: 8px 0; }
+  .bars .b .t { display: flex; justify-content: space-between; font-size: 13px; }
+  .bars .b .t b { font-variant-numeric: tabular-nums; }
+  .bars .b .track { height: 12px; background: var(--grid); border-radius: 4px; overflow: hidden; margin-top: 3px; }
+  .bars .b .track i { display: block; height: 100%; width: 0; border-radius: 4px; }
+  details { margin-top: 4px; }
+  details summary { cursor: pointer; font-size: 13px; color: var(--text-secondary); padding: 4px 0; }
+  .pgrid { display: grid; grid-template-columns: 1fr; gap: 10px 18px; margin-top: 6px; }
+  @media (min-width: 700px) { .pgrid { grid-template-columns: 1fr 1fr; } }
+  .pbox { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+  .pbox h3 { font-size: 13px; margin: 0; }
+  .src { font-size: 12px; color: var(--text-secondary); padding-left: 18px; margin: 6px 0 0; }
+  .src a { color: var(--s1); }
+  .warn { font-size: 12px; color: var(--text-secondary); margin-top: 8px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-left: 6px; vertical-align: middle; }
+  .seg button { font: inherit; font-size: 12px; padding: 4px 10px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+  .seg button.on { background: var(--s1); color: #fff; }
+</style>
+</head>
+<body class="viz-root">
+<main>
+  <h1>ハミング換気マップ</h1>
+  <p class="lede">ハミングの高さによって、どの副鼻腔の空気がどれだけ入れ替わるかを計算します。集中定数モデル（副鼻腔＝空洞、自然口＝首の共鳴器）に、流体計算（2次元と3次元のLBM）で測った混合率を組み込んでいます。下のツールでは、マイクで拾った自分のハミングの高さで各副鼻腔の換気を積算できます。</p>
+
+  <section class="card">
+    <h2>ハミングの高さと、5秒で入れ替わる割合</h2>
+    <p class="sub">片側の各副鼻腔について、鼻腔内の音圧振幅 <span id="p0txt">180</span> Pa のハミングを5秒続けたときの計算値。実線＝ハミング＋拡散、破線＝拡散だけ（黙っていても起きる換気）、縦線＝いまの高さ</p>
+    <div class="chart" id="cMap"></div>
+    <div class="ctl" style="margin-top:6px">
+      <label><span class="row"><span>ハミングの高さ（グラフの縦線）</span><b><span id="fTxt">150</span> Hz</b></span>
+        <input type="range" id="fSlider" min="80" max="400" step="1" value="150"></label>
+    </div>
+    <div style="margin-top:8px;font-size:12px;color:var(--text-secondary)">声の倍音 <span class="seg" id="hSeg"></span></div>
+    <div class="tablewrap"><table id="tbl" style="margin-top:8px"></table></div>
+    <p class="verdict" id="why"></p>
+  </section>
+
+
+  <section class="card">
+    <h2>鼻から出るNO：モデルと実測の照合</h2>
+    <p class="sub">副鼻腔の粘膜は表面積に比例してNOを作り、粘膜の側のたくわえを通して洞の空気に渡し、拡散とハミングで鼻腔へ出ていく、というモデル（洞の空気はよく混ざる1つの部屋）。左右の片側について、篩骨蜂巣は <span id="ethN">8</span> 室として計算。グラフの切れ目は吸気中、帯はハミング中</p>
+    <div style="margin:4px 0 6px"><span class="seg" id="protoSeg"></span></div>
+    <div class="chart" id="cNO"></div>
+    <div class="tablewrap"><table id="noCmp" style="margin-top:8px"></table></div>
+    <p class="verdict" id="noText"></p>
+    <details><summary>NOモデルの仮定</summary>
+      <div class="ctl">
+        <label><span class="row"><span>安静時の鼻のNOのうち、鼻腔の粘膜が作る割合（文献：50%超。既定値は校正値）</span><b><span id="mshv">70</span>%</b></span><input type="range" id="msh" min="30" max="95" step="1" value="70"></label>
+        <label><span class="row"><span>上顎洞のNO濃度（安静時、文献：5〜20 ppm）</span><b><span id="cssv">8</span> ppm</b></span><input type="range" id="css" min="1" max="30" step="0.5" value="8"></label>
+        <label><span class="row"><span>粘膜のたくわえからNOが失われる時定数（校正値2分。このときハミングの山の見かけの回復時定数は約2.8分で、文献の4.5 ± 3.2分の範囲）</span><b><span id="taurv">2.0</span> 分</b></span><input type="range" id="taur" min="1" max="10" step="0.1" value="2"></label>
+        <label><span class="row"><span>呼気流量（片側）</span><b><span id="flv">0.10</span> L/s</b></span><input type="range" id="fl" min="0.03" max="0.3" step="0.01" value="0.1"></label>
+      </div>
+    </details>
+  </section>
+  <section class="card">
+    <h2>自分のハミングで換気を積算する</h2>
+    <p class="sub">マイクで声の高さを推定し、ハミングしている間だけ各副鼻腔の「入れ替わった割合」を積み上げます</p>
+    <div class="live">
+      <div>
+        <div class="pitch"><div class="l">いまの声の高さ</div><div class="v" id="pv">—<small>Hz</small></div>
+          <div class="meter"><i id="lv"></i></div>
+          <div class="note" id="pstat" style="margin-top:6px">マイクは停止中</div></div>
+        <div class="btns">
+          <button class="pri" id="bMic">マイクを使う</button>
+          <button class="hold" id="bHold">押している間ハミング（縦線の高さ）</button>
+          <button id="bReset">リセット</button>
+        </div>
+        <p class="note" id="timer" style="margin-top:8px">ハミング合計 0.0 秒</p>
+      </div>
+      <div class="bars" id="bars"></div>
+    </div>
+    <p class="warn" id="micNote">マイクが使えない環境では「押している間ハミング」で、縦線の高さのハミングを模擬できます。</p>
+  </section>
+
+  <section class="card">
+    <h2>副鼻腔の寸法（変更できます）</h2>
+    <p class="sub">既定値は文献の平均値と、前回の3次元計算で使った症例（NasalSeg P001）の値。個人差が非常に大きいので、結果は「典型例」として見てください</p>
+    <div class="ctl">
+      <label><span class="row"><span>上顎洞の自然口での音圧振幅（実効値。大きな声ほど大きい。既定の180 Paは人のNOの測定に合わせた校正値。ほかの副鼻腔は自然口の場所に応じた比をかける）</span><b><span id="p0v">180</span> Pa</b></span>
+        <input type="range" id="p0" min="1" max="3" step="0.01" value="2.255"></label>
+    </div>
+    <div class="ctl"><label><span class="row"><span>自然口の内側の粘膜の厚み（腫れると厚くなり、開口径が 2倍ぶん狭まる）</span><b><span id="mucv">0.0</span> mm</b></span>
+        <input type="range" id="muc" min="0" max="1.2" step="0.05" value="0"></label></div>
+    <div class="ctl"><label><span class="row"><span>粘液の膜の厚み（自然口の半径の12%を超えると液体の栓でふさがる）</span><b><span id="mcv">50</span> µm</b></span>
+        <input type="range" id="mucus" min="0" max="300" step="5" value="50"></label></div>
+    <div class="pgrid" id="pgrid"></div>
+  </section>
+
+  <section class="card">
+    <h2>計算の中身</h2>
+    <div class="note">
+      <p><b>1. 共鳴</b>　各副鼻腔を、容積 V の空洞と直径 d・長さ L の首（自然口）からなるヘルムホルツ共鳴器とみなします。鼻腔側の音圧振幅 P₀ で揺すったときに自然口を往復する空気の量を、粘性と噴流の損失を含めて解きます。共鳴周波数は f₀ = (c/2π)√(A/(V·(L+1.7r)))。</p>
+      <p><b>2. 混合</b>　往復する空気のうち、副鼻腔に混ざって戻らない割合 η は、3次元LBMの測定（球形の空洞と円筒の自然口で、自然口の長さ6種類×空気柱3〜4条件。2026年11月に測り直し）に当てはめた η = 0.695 × (1 − exp(−((L₀/L)/1.68)^1.76)) × (1 − exp(−((L₀/d)/1.15)^0.57)) × exp(−(L/d)/48) を使います。L₀ は1周期に流れ込む空気柱の長さ、L は自然口の長さ、d は直径です。1つ目の因子は「自然口の中を往復するだけの空気は入れ替わらない」こと、2つ目は「空気柱が直径1つ分より短いと噴流ができにくく、さらに混ざりにくい」こと、3つ目は「自然口が細長い管だと混ざりにくい」ことを表します（副鼻腔の自然口の長さではほとんど効きません）。</p>
+      <p><b>3. 換気</b>　換気量 Q = η × 流入量 × f。5秒で入れ替わる割合は、洞の空気がよく混ざる1つの部屋だとして計算します（6を参照）。倍音を含める設定では、2〜6倍音をそれぞれ独立に計算して足し合わせます（振幅は倍音の次数 n に対して n^−1 または n^−2 で減るとした粗い近似）。</p>
+      <p><b>4. 拡散</b>　自然口を通るNOの拡散による換気速度 = D·A / (V·(L+1.7r))（D = NOの空気中の拡散係数、約0.2 cm²/s）。この「容積×長さ÷面積」は共鳴周波数の式にも入っているので、拡散で入れ替わる時間は τ = c² / (D·(2πf₀)²) と共鳴周波数だけで決まります。ハミングによる換気と拡散は足し合わせています。</p>
+      <p><b>5. 粘膜</b>　自然口の内側を厚さ t の粘膜が覆うと、開口径は d − 2t に狭まります（CTで測る寸法は空気の通り道なので、既定値は0）。粘液線毛輸送がガス交換に与える影響は、数値計算の研究で無視できるほど小さいと報告されているため入れていません。</p>
+      <p><b>5b. 自然口の場所と音圧</b>　開いた鼻孔は音圧の「節」（ほとんど揺れない所）なので、鼻の奥ほど音圧が大きくなります。声道と鼻腔の1次元の音響モデルで、各副鼻腔の自然口の音圧を上顎洞の自然口と比べると、ハミングの音域で蝶形骨洞は約1.4倍、篩骨蜂巣は平均で約1.1倍（奥の蜂巣1.3倍、前の蜂巣0.9倍）、前頭洞は約0.85倍です。設定の音圧は上顎洞の自然口での値で、ほかの副鼻腔にはこの比をかけています。位置はおおよその解剖からの仮定です。</p>
+      <p><b>6. 洞の空気と粘膜のたくわえ</b>　洞の中の空気は、ハミングの噴流で2〜3秒のうちによく混ざります（3Dの流体計算を長く回して確かめた、2026-11-22）。そこで洞の空気は1つの部屋として計算します。一方、人の測定では、ハミングを続けても繰り返してもNOがゆっくりとしか減らないので、粘膜の側にNOのたくわえ（空気の量の0.6倍、空気とは約24秒でやり取り）を置いています。化学的な貯えか、空気のNOが減ると作る量が増える調節かは、区別できません。</p>
+      <p><b>7. 人の測定に合わせた校正</b>　音圧180 Pa（倍音は弱い＝1オクターブごとに12 dB減）、粘膜のたくわえの大きさと速さ、鼻腔の粘膜が作る割合70%は、人の測定に合わせた値です。合わせた測定は、ハミング中にNOが減る速さ（時定数3秒）と回復の時定数4.5分（Menzel 2005）、10秒の平均の増加4.7倍、5秒おきの反復での減り方、3分での回復（Maniscalco 2003）です。鼻腔内の音圧そのものは測られておらず、180 Paはモデルの近似も含んだ「実効値」です。</p>
+      <p><b>大事な性質</b>　共鳴より低い周波数では、流入量は「V × P₀ ÷ (空気のばね定数)」で決まり、自然口の太さにほとんどよりません。そのため空気柱の長さは L₀ ∝ V/A となり、<b>容積が小さく穴が太い副鼻腔ほど、空気が自然口の中を往復するだけで奥まで届きません</b>。また共鳴より下では、換気の速さはおおむね周波数に比例します。</p>
+      <p><b>入っていないもの</b>　副鼻腔どうしの音響的な結合、場所による鼻腔内音圧の違い、粘膜の腫れ、繊毛運動、拡散による安静時の換気（上顎洞では全交換に約30分）。マイクの音量は鼻腔内の音圧に換算できないため、音圧は上の設定値で固定しています。</p>
+    </div>
+    <h2 style="margin-top:10px">寸法の出典</h2>
+    <ol class="src">
+      <li><a href="https://cris.bgu.ac.il/en/publications/volumetric-analysis-of-the-maxillary-sphenoid-and-frontal-sinuses/">Cohen et al. (2018) 上顎洞・蝶形骨洞・前頭洞の容積（CT 201例）</a>：12.75、4.00、2.92 mL</li>
+      <li><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9280512">上顎洞自然口と篩骨漏斗の寸法（CT 100例）</a>：自然口 約3.0 mm</li>
+      <li><a href="https://radiopharmaconnect.srsweb.org/users/893942/articles/1270731-morphological-variations-of-the-frontal-sinus-in-a-south-asian-population-a-computed-tomography-based-analysis">前頭洞の開口径（CT 212洞）</a>：7.4〜7.8 mm</li>
+      <li><a href="https://dergipark.org.tr/en/download/article-cite-file/1219507/type/2">蝶形骨洞自然口（CBCT）</a>：約2.2 mm</li>
+      <li><a href="https://katalog.lib.cas.cz/KNAV/EdsRecord/cmedm,38321355">篩骨洞の容積（3D-CT 150例）</a>：片側 約3.4 mL。<a href="https://EN.wikipedia.com/wiki/Ethmoidal">蜂巣は5〜15個</a>なので、1室を約0.4 mLとしました。篩骨蜂巣の開口径は良い文献値が見つからず、1.5 mmは仮定です</li>
+      <li>上顎洞の既定値：<a href="https://doi.org/10.5281/zenodo.13893419">NasalSeg</a>（Zhang Y. et al., Scientific Data 2024、<a href="https://creativecommons.org/licenses/by/4.0/deed.ja">CC BY 4.0</a>）症例P001から計測（容積14.0 mL、骨壁の厚み2.1 mm）。直径2.8 mmは3次元計算で使った設定値</li>
+      <li>ハミングで鼻のNOが増える倍率：吐く息10秒の最後の8秒の平均で4.7倍（<a href="https://pubmed.ncbi.nlm.nih.gov/12952268/">Maniscalco et al. 2003</a>、0.2 L/s、10人）と4.2倍（<a href="https://pubmed.ncbi.nlm.nih.gov/17696966/">Shusterman et al. 2007</a>、10人）。よく引用される15倍（<a href="https://pubmed.ncbi.nlm.nih.gov/12119224/">Weitzberg &amp; Lundberg 2002</a>）は短報で、山と平均のどちらを比べたかは確認できていません</li>
+      <li>反復で山が段階的に下がり3分で回復、鼻粘膜由来が50%超、反復後の安静時NOが5〜50%低下、副鼻腔のNOが5〜20 ppm：<a href="https://pubmed.ncbi.nlm.nih.gov/12952268/">Maniscalco et al. (2003)</a></li>
+      <li>NO回復の時定数 4.5 ± 3.2 分：<a href="https://researchportal.vub.be/en/publications/temporal-nitric-oxide-dynamics-in-the-paranasal-sinuses-during-hu/">Menzel et al. (2005)</a></li>
+      <li>副鼻腔上皮の誘導型NO合成酵素：<a href="https://pubmed.ncbi.nlm.nih.gov/7585069/">Lundberg et al. (1995)</a></li>
+      <li>液膜が管の半径の約12%を超えると液体の栓ができる：<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC8074672">気道閉塞の研究</a></li>
+    </ol>
+    <p class="note" style="margin-top:10px">換気の物理を調べるための計算モデルで、診断や治療の効果を示すものではありません。症状がある場合は医師に相談してください。</p>
+  </section>
+</main>
+<div class="tip" id="tip"></div>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.body).getPropertyValue(n).trim();
+
+// ---------------- model ----------------
+const RHO = 1.14, C0 = 350, MU = 1.9e-5, KLOSS = 1.5;
+// 3D LBM fit (ideal geometry, refit 2026-11-21): eta = m (1 - exp(-(x/x0)^n)) (1 - exp(-(j/k)^p)) exp(-(L/d)/lam), x = L0/L, j = L0/d
+const MIX = { m: 0.695, x0: 1.68, n: 1.76, k: 1.15, p: 0.57, lam: 48 };
+const sat = (v, v0, n) => 1 - Math.exp(-Math.pow(Math.max(v, 0) / v0, n));
+// the sinus air is one well-mixed box (long 3D runs, results/agefield_maxillary.md, 2026-11-22); the slow part the
+// in-vivo NO data need is a mucosal store (results/no_kinetics_store.md): capacity 0.6 x the air, exchanging on 24 s
+const STORE = { sigma: 0.6, tauEx: 24 };
+// sound pressure at each ostium relative to the maxillary ostium during humming [m] with the nose open
+// (1D tract model, tools/ostium_pressure.py / results/ostium_pressure.json): the open nostril is a pressure node,
+// so ostia nearer the back of the nose (sphenoid, posterior ethmoid) see more pressure
+const OSTP = {"f":[50,53,57,61,65,70,74,80,85,91,97,104,111,118,127,135,144,154,165,176,188,201,215,230,246,262,280,300,320,342,365,391,417,446,476,509,544,581,621,664,709,758,810,865,925,988,1056,1128,1206,1288,1376,1471,1572,1679,1795,1918,2049,2190,2340,2500],"sph":[1.44,1.44,1.44,1.44,1.44,1.44,1.44,1.43,1.43,1.43,1.43,1.43,1.42,1.42,1.41,1.41,1.41,1.4,1.39,1.38,1.37,1.36,1.34,1.32,1.3,1.29,1.32,1.49,1.68,1.72,1.69,1.64,1.6,1.57,1.54,1.52,1.49,1.47,1.45,1.42,1.4,1.37,1.33,1.3,1.26,1.21,1.16,1.11,1.04,0.97,0.89,0.79,0.69,0.57,0.45,0.35,0.34,0.47,0.74,1.11],"fro":[0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.87,0.87,0.87,0.87,0.87,0.88,0.88,0.88,0.89,0.89,0.9,0.9,0.91,0.92,0.93,0.95,0.96,0.98,1.0,1.03,1.06,1.1,1.15,1.22,1.32,1.45],"eth":[1.11,1.11,1.11,1.11,1.11,1.11,1.11,1.11,1.11,1.11,1.11,1.11,1.1,1.1,1.1,1.1,1.1,1.1,1.09,1.09,1.09,1.08,1.08,1.07,1.06,1.06,1.07,1.12,1.19,1.21,1.2,1.18,1.17,1.16,1.15,1.15,1.14,1.13,1.13,1.12,1.11,1.1,1.1,1.09,1.08,1.07,1.05,1.04,1.02,1.0,0.98,0.96,0.93,0.9,0.86,0.82,0.78,0.75,0.78,0.91]};
+function ostG(id, f) {
+  const g = OSTP[id]; if (!g) return 1;   // maxillary = 1 (the reference)
+  const F = OSTP.f; if (f <= F[0]) return g[0]; if (f >= F[F.length - 1]) return g[g.length - 1];
+  let i = 0; while (F[i + 1] < f) i++;
+  const t = Math.log(f / F[i]) / Math.log(F[i + 1] / F[i]);
+  return g[i] + t * (g[i + 1] - g[i]);
+}
+// one time step of the remaining fraction {n} of the sinus air under exchange rate k (1/s); one well-mixed box
+function step1(st, k, dt) { st.n *= Math.exp(-k * dt); return st; }
+const whole1 = st => st.n;
+const exch1 = (k, T) => 1 - Math.exp(-k * T);   // fraction of the sinus air exchanged in T s
+let HARM = 2;   // harmonic roll-off exponent (0 = fundamental only, 2 = -12 dB/oct: realistic voice source, default)
+const DNO = 2.0e-5;   // NO diffusivity in air, m^2/s
+let MUC = 0;          // mucosal lining thickness inside the ostium, mm
+let MUCUS = 50;       // mucus film thickness, micrometres (closure when > 0.12 x ostium radius)
+const SINUS = [
+  { id: 'max', name: '上顎洞', col: '--s1', V: 14.0, d: 2.8, L: 2.1, note: 'P001の実測（容積・骨壁）', rng: { V: [5, 30], d: [1, 5], L: [1, 10] } },
+  { id: 'sph', name: '蝶形骨洞', col: '--s2', V: 4.0, d: 2.2, L: 1.5, note: '文献平均。長さは前壁の厚みの仮定', rng: { V: [1, 12], d: [1, 5], L: [0.5, 6] } },
+  { id: 'fro', name: '前頭洞', col: '--s3', V: 2.9, d: 7.5, L: 4.0, note: '文献平均。長さは仮定', rng: { V: [0.5, 12], d: [2, 10], L: [1, 15] } },
+  { id: 'eth', name: '篩骨蜂巣（1室）', col: '--s4', V: 0.4, d: 1.5, L: 1.5, note: '容積は推定、開口径・長さは仮定', rng: { V: [0.1, 2], d: [0.5, 4], L: [0.5, 5] } },
+];
+let P0 = 180;   // effective nasal sound pressure, calibrated to in-vivo NO data (one-box air + mucosal store, results/no_kinetics_store.md)
+const dEff = s => Math.max(0.2, s.d - 2 * MUC);
+function solve(s, f, p0 = P0) {
+  const r = dEff(s) / 2e3, A = Math.PI * r * r, L = s.L / 1e3, Le = L + 1.7 * r, V = s.V * 1e-6, w = 2 * Math.PI * f;
+  const M = RHO * Le / A, C = V / (RHO * C0 * C0), X = w * M - 1 / (w * C);
+  const Rl = Math.max(8 * MU * L / (Math.PI * r ** 4), (L / (Math.PI * r ** 3)) * Math.sqrt(2 * RHO * MU * w)) + RHO * w * w / (2 * Math.PI * C0);
+  const k = (8 / (3 * Math.PI)) * KLOSS * RHO / (2 * A * A);
+  const pe = p0 * ostG(s.id, f);   // pressure at this sinus's ostium (P0 is the maxillary ostium's)
+  let lo = 0, hi = pe / Math.sqrt(Rl * Rl + X * X);
+  for (let i = 0; i < 60; i++) { const q = (lo + hi) / 2; if (q * Math.sqrt((Rl + k * q) ** 2 + X * X) > pe) hi = q; else lo = q; }
+  const Vin = 2 * lo / w, L0 = Vin / A;
+  const eta = MIX.m * sat(L0 / L, MIX.x0, MIX.n) * sat(L0 / (2 * r), MIX.k, MIX.p) * Math.exp(-L / (2 * r) / MIX.lam);
+  const Q = eta * Vin * f;
+  let rate = Q / V;                         // 1/s, fundamental
+  if (HARM > 0 && p0 === P0) { for (let h = 2; h <= 6; h++) rate += solve(s, f * h, P0 * Math.pow(h, -HARM)).rate; }
+  const f0 = C0 / (2 * Math.PI) * Math.sqrt(A / (V * Le));
+  let rateD = DNO * A / (V * Le);             // diffusion-only exchange rate, 1/s
+  const closed = MUCUS / 1000 > 0.12 * (dEff(s) / 2);
+  if (closed) { rate = 0; rateD = 1e-9; }
+  const rateT = rate + rateD;
+  return { closed, f0, Vin, L0mm: L0 * 1e3, eta, rate, rateD, rateT, frac5: exch1(rateT, 5), frac5D: exch1(rateD, 5), tauD: 1 / rateD, ratio: L0 / L };
+}
+
+// ---------------- chart ----------------
+const tip = $('tip');
+const host = $('cMap'); const cv = document.createElement('canvas'); host.appendChild(cv);
+const ctx = cv.getContext('2d');
+let hover = null, fCur = 150;
+cv.addEventListener('pointermove', e => { const r = cv.getBoundingClientRect(); hover = { x: e.clientX - r.left, y: e.clientY - r.top, cx: e.clientX, cy: e.clientY }; draw(); });
+cv.addEventListener('pointerleave', () => { hover = null; tip.style.display = 'none'; draw(); });
+function showTip(html, cx, cy) {
+  tip.innerHTML = html; tip.style.display = 'block';
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let x = cx + 12 + scrollX, y = cy - th - 10 + scrollY;
+  if (x + tw > scrollX + innerWidth - 6) x = cx - tw - 12 + scrollX;
+  if (y < scrollY + 4) y = cy + 14 + scrollY;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+const FMIN = 80, FMAX = 400;
+let curves = [];
+function computeCurves() {
+  curves = SINUS.map(s => { const pts = []; for (let f = FMIN; f <= FMAX; f += 2) { const r = solve(s, f); pts.push({ f, v: r.frac5, vd: r.frac5D }); } return pts; });
+}
+function draw() {
+  const w = host.clientWidth, h = Math.max(240, Math.round(w * 0.5)), dpr = Math.min(devicePixelRatio || 1, 2);
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.height = h + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  const labW = Math.min(118, w * 0.26);
+  const box = { x: 40, y: 16, w: w - 52 - labW, h: h - 16 - 38 };
+  const X = f => box.x + (f - FMIN) / (FMAX - FMIN) * box.w;
+  const Y = v => box.y + box.h - v * box.h;
+  ctx.font = '11px system-ui, -apple-system, sans-serif';
+  ctx.strokeStyle = css('--grid'); ctx.fillStyle = css('--text-muted'); ctx.lineWidth = 1;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const v of [0, .25, .5, .75, 1]) { const y = Y(v); ctx.beginPath(); ctx.moveTo(box.x, y + .5); ctx.lineTo(box.x + box.w, y + .5); ctx.stroke(); ctx.fillText(v * 100 + '%', box.x - 5, y); }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (const f of [100, 150, 200, 250, 300, 350, 400]) ctx.fillText(f, X(f), box.y + box.h + 5);
+  ctx.strokeStyle = css('--axis'); ctx.beginPath(); ctx.moveTo(box.x, box.y + box.h + .5); ctx.lineTo(box.x + box.w, box.y + box.h + .5); ctx.stroke();
+  ctx.fillStyle = css('--text-secondary'); ctx.textAlign = 'right'; ctx.fillText('ハミングの高さ (Hz)', box.x + box.w, box.y + box.h + 20);
+  // current f line
+  const xf = X(fCur);
+  ctx.strokeStyle = css('--text-primary'); ctx.globalAlpha = .55; ctx.beginPath(); ctx.moveTo(xf + .5, box.y); ctx.lineTo(xf + .5, box.y + box.h); ctx.stroke(); ctx.globalAlpha = 1;
+  // series
+  SINUS.forEach((s, i) => {
+    ctx.save(); ctx.strokeStyle = css(s.col); ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]); ctx.globalAlpha = .8; ctx.beginPath();
+    curves[i].forEach((p, j) => { const x = X(p.f), y = Y(p.vd); j ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke(); ctx.restore();
+    ctx.strokeStyle = css(s.col); ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.beginPath();
+    curves[i].forEach((p, j) => { const x = X(p.f), y = Y(p.v); j ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
+    const v = solve(s, fCur).frac5;
+    ctx.fillStyle = css(s.col); ctx.strokeStyle = css('--surface-1'); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(xf, Y(v), 4.5, 0, 7); ctx.fill(); ctx.stroke();
+  });
+  // direct labels at right end, de-collided
+  const labs = SINUS.map((s, i) => ({ s, y: Y(curves[i][curves[i].length - 1].v), v: curves[i][curves[i].length - 1].v }));
+  labs.forEach(l => { l.y = Math.max(box.y + 6, Math.min(box.y + box.h - 4, l.y)); });
+  labs.sort((a, b) => b.y - a.y);   // bottom first, push upward
+  for (let i = 1; i < labs.length; i++) if (labs[i - 1].y - labs[i].y < 14) labs[i].y = labs[i - 1].y - 14;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  labs.forEach(l => { ctx.fillStyle = css(l.s.col); ctx.fillRect(box.x + box.w + 6, l.y - 4, 8, 8); ctx.fillStyle = css('--text-primary'); ctx.fillText(l.s.name, box.x + box.w + 18, l.y); });
+  if (hover) {
+    const f = Math.round(Math.max(FMIN, Math.min(FMAX, FMIN + (hover.x - box.x) / box.w * (FMAX - FMIN))));
+    if (hover.x >= box.x - 4 && hover.x <= box.x + box.w + 4) {
+      const x = X(f); ctx.strokeStyle = css('--axis'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + .5, box.y); ctx.lineTo(x + .5, box.y + box.h); ctx.stroke();
+      const rows = SINUS.map(s => { const r = solve(s, f); return { s, r }; }).sort((a, b) => b.r.frac5 - a.r.frac5);
+      rows.forEach(({ s, r }) => { ctx.fillStyle = css(s.col); ctx.strokeStyle = css('--surface-1'); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, Y(r.frac5), 4, 0, 7); ctx.fill(); ctx.stroke(); });
+      showTip(`<b>${f} Hz</b>（ハミング＋拡散／拡散だけ）` + rows.map(({ s, r }) => `<br><span class="sw" style="background:${css(s.col)}"></span>${s.name}　${(r.frac5 * 100).toFixed(0)}%／${(r.frac5D * 100).toFixed(0)}%`).join(''), hover.cx, hover.cy);
+    } else tip.style.display = 'none';
+  }
+}
+function renderTable() {
+  const rows = SINUS.map(s => ({ s, r: solve(s, fCur) }));
+  $('tbl').innerHTML = `<tr><th>副鼻腔</th><th class="num">容積</th><th class="num">開口径</th><th class="num">共鳴 f₀</th><th class="num">空気柱 L₀</th><th class="num">L₀/L</th><th class="num">η（基本音）</th><th class="num">拡散の時定数</th><th class="num">5秒・拡散だけ</th><th class="num">5秒・ハミング＋拡散</th></tr>` +
+    rows.map(({ s, r }) => `<tr><td><span class="sw" style="background:${css(s.col)}"></span>${s.name}</td><td class="num">${s.V.toFixed(1)} mL</td><td class="num">${dEff(s).toFixed(1)} mm</td><td class="num">${r.f0 >= 1000 ? (r.f0 / 1000).toFixed(1) + ' kHz' : r.f0.toFixed(0) + ' Hz'}</td><td class="num">${r.L0mm < 1 ? r.L0mm.toFixed(2) : r.L0mm.toFixed(1)} mm</td><td class="num">${r.ratio < 0.1 ? r.ratio.toFixed(2) : r.ratio.toFixed(1)}</td><td class="num">${(r.eta * 100).toFixed(0)}%</td><td class="num">${r.closed ? '閉塞' : r.tauD >= 120 ? (r.tauD / 60).toFixed(1) + ' 分' : r.tauD.toFixed(0) + ' 秒'}</td><td class="num">${r.closed ? '—' : (r.frac5D * 100).toFixed(0) + '%'}</td><td class="num"><b>${r.closed ? '閉塞' : (r.frac5 * 100).toFixed(0) + '%'}</b></td></tr>`).join('');
+  // explanation
+  const ok = rows.filter(x => x.r.eta > 0.05).map(x => x.s.name);
+  const ng = rows.filter(x => x.r.eta <= 0.05).map(x => x.s.name);
+  const best = rows.reduce((a, b) => b.r.frac5 > a.r.frac5 ? b : a);
+  const maxR = rows[0].r;
+  let t = `${fCur} Hzでは、最もよく換気されるのは<b>${best.s.name}</b>（5秒で${(best.r.frac5 * 100).toFixed(0)}%）。`;
+  if (ng.length) t += ` ${ng.join('・')}は、1周期に流れ込む空気柱 L₀ が自然口の長さ L よりずっと短く（L₀/L が小さい）、空気が自然口の中を往復するだけで奥まで届きません（容積が小さい、または穴が太いため）。`;
+  const sph = rows[1].r; if (sph.ratio > 0.4 && sph.ratio < 1.5) t += ` 蝶形骨洞は L₀/L が ${sph.ratio.toFixed(1)} と境目にあり、声の大きさや高さが少し変わるだけで換気が大きく変わります。`;
+  if (HARM > 0) t += ' 倍音を含めると、上顎洞の共鳴に倍音が重なるぶん換気が増えます。';
+  t += ` 共鳴周波数はどれもハミングの音域より高いので、この範囲では<b>高い声ほど換気が速く</b>なります。` + (maxR.f0 < 600 ? `上顎洞は共鳴（${maxR.f0.toFixed(0)} Hz）に近づくほど、さらに伸びます。` : '');
+  const gain = rows.map(x => ({ s: x.s, g: x.r.rate / x.r.rateD })).sort((a, b) => b.g - a.g);
+  t += ` <br>拡散だけでも、${rows.filter(x => x.r.tauD < 120).map(x => x.s.name).join('・') || '（該当なし）'}は2分以内に入れ替わります。共鳴周波数が高い（＝容積が小さいか穴が太い）副鼻腔ほど拡散が速く、ハミングが効かない副鼻腔はハミングを必要としていない、という関係です。ハミングが拡散の何倍の換気を上乗せするかは、${gain.map(x => `${x.s.name} ${x.g >= 10 ? x.g.toFixed(0) : x.g.toFixed(1)}倍`).join('、')}。`;
+  if (MUC > 0) {
+    const m0 = MUC; MUC = 0; const base = SINUS.map(x => solve(x, fCur)); MUC = m0;
+    const up = rows.filter((x, i) => x.r.rate > base[i].rate * 1.1).map(x => x.s.name);
+    t += ` 粘膜の厚み ${MUC.toFixed(2)} mm で自然口が狭まると、拡散はどの副鼻腔でも遅くなります。` +
+      (up.length ? `一方でモデル上は、${up.join('・')}のハミングによる換気がかえって増えます（同じ流入量でも穴が細いと空気柱が長くなり、共鳴も下がるため）。ただしこれは「自然口が大きいほどハミングでNOが増える」という模型実験の傾向と逆で、このモデルの弱点と考えられます。` : 'ハミングによる換気も落ちます。');
+  }
+  const cl = rows.filter(x => x.r.closed).map(x => x.s.name);
+  if (cl.length) t += ` <b>${cl.join('・')}は、粘液の膜（${MUCUS} µm）が自然口の半径の12%を超えたため、表面張力で粘液がつながって自然口がふさがる（液体の栓ができる）条件に入りました。</b>この状態では拡散もハミングも働きません。`;
+  $('why').innerHTML = t;
+  if (typeof runNO === 'function' && !micOn) runNO();
+}
+
+// ---------------- parameters ----------------
+function buildParams() {
+  const g = $('pgrid'); g.innerHTML = '';
+  SINUS.forEach(s => {
+    const box = document.createElement('div'); box.className = 'pbox ctl';
+    box.innerHTML = `<h3><span class="sw" style="background:${css(s.col)}"></span>${s.name}</h3><div class="note">${s.note}</div>`;
+    [['V', '容積', 'mL', 0.1], ['d', '開口径', 'mm', 0.1], ['L', '開口部の長さ', 'mm', 0.1]].forEach(([k, lab, unit, step]) => {
+      const l = document.createElement('label');
+      l.innerHTML = `<span class="row"><span>${lab}</span><b><span data-v>${s[k].toFixed(1)}</span> ${unit}</b></span><input type="range" min="${s.rng[k][0]}" max="${s.rng[k][1]}" step="${step}" value="${s[k]}">`;
+      const inp = l.querySelector('input'), out = l.querySelector('[data-v]');
+      inp.addEventListener('input', () => { s[k] = +inp.value; out.textContent = s[k].toFixed(1); update(); });
+      box.appendChild(l);
+    });
+    g.appendChild(box);
+  });
+}
+$('mucus').addEventListener('input', e => { MUCUS = +e.target.value; $('mcv').textContent = MUCUS; update(); });
+$('muc').addEventListener('input', e => { MUC = +e.target.value; $('mucv').textContent = MUC.toFixed(2); update(); });
+$('p0').addEventListener('input', e => { P0 = Math.round(10 ** +e.target.value); $('p0v').textContent = P0; $('p0txt').textContent = P0; update(); });
+$('fSlider').addEventListener('input', e => { setF(+e.target.value, false); });
+function setF(f, fromMic) {
+  fCur = Math.round(Math.max(FMIN, Math.min(FMAX, f)));
+  $('fTxt').textContent = fCur;
+  if (fromMic) $('fSlider').value = fCur;
+  renderTable(); draw();
+}
+function update() { computeCurves(); renderTable(); draw(); }
+
+// ---------------- session bars ----------------
+const remain = SINUS.map(() => 1), remainD = SINUS.map(() => 1);
+const st2 = SINUS.map(() => ({ n: 1 })), st2D = SINUS.map(() => ({ n: 1 }));   // remaining fraction of the sinus air
+let humSec = 0;
+function buildBars() {
+  $('bars').innerHTML = SINUS.map((s, i) => `<div class="b"><div class="t"><span><span class="sw" style="background:${css(s.col)}"></span>${s.name}</span><b id="bv${i}">0%</b></div><div class="track"><i id="bi${i}" style="background:${css(s.col)}"></i></div></div>`).join('') +
+    `<p class="note">バー＝ハミングしていた時間のあいだに、各副鼻腔の空気が入れ替わった割合（拡散を含む）。かっこ内は、同じ時間を黙っていた場合（拡散だけ）</p>`;
+}
+function renderBars() {
+  SINUS.forEach((s, i) => { const v = 1 - remain[i], vd = 1 - remainD[i]; $('bv' + i).textContent = `${(v * 100).toFixed(0)}%（拡散だけなら ${(vd * 100).toFixed(0)}%）`; $('bi' + i).style.width = (v * 100).toFixed(1) + '%'; });
+  $('timer').textContent = `ハミング合計 ${humSec.toFixed(1)} 秒`;
+}
+function integrate(f, dt) {
+  SINUS.forEach((s, i) => { const r = solve(s, f); remain[i] = whole1(step1(st2[i], r.rateT, dt)); remainD[i] = whole1(step1(st2D[i], r.rateD, dt)); });
+  humSec += dt;
+}
+$('bReset').onclick = () => { remain.fill(1); remainD.fill(1); st2.forEach(s => { s.n = 1; }); st2D.forEach(s => { s.n = 1; }); humSec = 0; renderBars(); };
+
+// manual hold
+let holding = false;
+const hb = $('bHold');
+const holdOn = e => { e.preventDefault(); holding = true; hb.classList.add('on'); };
+const holdOff = () => { holding = false; hb.classList.remove('on'); };
+hb.addEventListener('pointerdown', holdOn); hb.addEventListener('pointerup', holdOff); hb.addEventListener('pointerleave', holdOff); hb.addEventListener('pointercancel', holdOff);
+
+// ---------------- microphone + pitch (YIN) ----------------
+let ac = null, an = null, buf = null, micOn = false, voicedF = 0, smoothF = 0;
+$('bMic').onclick = async () => {
+  if (micOn) { stopMic(); return; }
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    $('pstat').textContent = 'マイクを使えませんでした';
+    $('micNote').innerHTML = 'このページは安全な接続（https://）で開かれていないため、ブラウザがマイクを許可しません。GitHub Pagesなどhttpsで配信される場所に置いて開いてください（ファイルを直接開く file:// や http:// では使えません）。';
+    return;
+  }
+  // iOS Safari: the AudioContext must be created and resumed synchronously inside the tap
+  ac = new (window.AudioContext || window.webkitAudioContext)();
+  const resumed = ac.resume();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    await resumed;
+    if (ac.state !== 'running') await ac.resume();
+    const src = ac.createMediaStreamSource(stream);
+    an = ac.createAnalyser(); an.fftSize = 2048; src.connect(an);
+    buf = new Float32Array(an.fftSize);
+    micOn = true; window.__stream = stream;
+    $('bMic').textContent = 'マイクを止める';
+    $('pstat').textContent = 'ハミングしてください（口を閉じて「んー」）';
+    $('micNote').textContent = 'マイクの音は端末の中だけで解析し、どこにも送信・保存しません。';
+  } catch (e) {
+    try { ac?.close(); } catch (e2) {}
+    $('pstat').textContent = 'マイクを使えませんでした（' + (e && e.name ? e.name : 'エラー') + '）';
+    $('micNote').innerHTML = (e && e.name === 'NotAllowedError')
+      ? 'マイクの使用が拒否されています。iPhoneなら「設定 → アプリ → Safari → マイク」を「確認」か「許可」にし、アドレスバー左の「ぁあ」→「Webサイトの設定」→「マイク」も確認してから、ページを再読み込みしてください。LINEやXなどアプリ内のブラウザではなく、Safariで直接開いてください。'
+      : 'この表示環境ではマイクが使えません（Claudeのビューア内など）。HTMLファイルをhttpsで配信される場所に置いてSafariで開くと使えます。それまでは「押している間ハミング」で模擬できます。';
+  }
+};
+function stopMic() {
+  micOn = false;
+  try { window.__stream?.getTracks().forEach(t => t.stop()); ac?.close(); } catch (e) {}
+  $('bMic').textContent = 'マイクを使う'; $('pstat').textContent = 'マイクは停止中'; $('pv').innerHTML = '—<small>Hz</small>'; $('lv').style.width = '0';
+}
+function yin(x, sr) {
+  const n = x.length, W = n >> 1;
+  const tmin = Math.floor(sr / 450), tmax = Math.min(W - 1, Math.ceil(sr / 70));
+  const d = new Float32Array(tmax + 2);
+  for (let t = 1; t <= tmax + 1; t++) { let s = 0; for (let i = 0; i < W; i++) { const v = x[i] - x[i + t]; s += v * v; } d[t] = s; }
+  let run = 0; const dn = new Float32Array(tmax + 2); dn[0] = 1;
+  for (let t = 1; t <= tmax + 1; t++) { run += d[t]; dn[t] = d[t] * t / (run || 1); }
+  let tau = -1;
+  for (let t = tmin; t <= tmax; t++) { if (dn[t] < 0.15) { while (t + 1 <= tmax && dn[t + 1] < dn[t]) t++; tau = t; break; } }
+  if (tau < 0) return { f: 0, conf: 0 };
+  const a = dn[tau - 1], b = dn[tau], c = dn[tau + 1];
+  const shift = (a - c) / (2 * (a - 2 * b + c) || 1);
+  return { f: sr / (tau + (isFinite(shift) ? shift : 0)), conf: 1 - b };
+}
+let last = 0;
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = last ? Math.min(0.1, (now - last) / 1000) : 0; last = now;
+  let humming = false, f = fCur;
+  if (micOn && an) {
+    an.getFloatTimeDomainData(buf);
+    let rms = 0; for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i]; rms = Math.sqrt(rms / buf.length);
+    $('lv').style.width = Math.min(100, rms * 600) + '%';
+    if (rms > 0.01) {
+      const r = yin(buf, ac.sampleRate);
+      if (r.f > 70 && r.f < 450 && r.conf > 0.8) {
+        smoothF = smoothF ? smoothF * 0.7 + r.f * 0.3 : r.f;
+        humming = true; f = smoothF;
+        $('pv').innerHTML = `${Math.round(smoothF)}<small>Hz</small>`;
+        $('pstat').textContent = 'ハミングを検出中';
+        setF(smoothF, true);
+      } else { $('pstat').textContent = '声の高さを判定できません'; smoothF = 0; }
+    } else { $('pstat').textContent = 'ハミングしてください（口を閉じて「んー」）'; smoothF = 0; }
+  }
+  if (holding) { humming = true; f = fCur; }
+  if (humming && dt > 0) { integrate(f, dt); renderBars(); }
+}
+
+[['なし（基本音だけ）', 0], ['弱い（−12 dB/oct）', 2], ['強い（−6 dB/oct）', 1]].forEach(([n, v]) => {
+  const b = document.createElement('button'); b.textContent = n; b.className = v === HARM ? 'on' : '';
+  b.onclick = () => { HARM = v; [...$('hSeg').children].forEach(x => x.classList.toggle('on', x === b)); update(); };
+  $('hSeg').appendChild(b);
+});
+
+// ---------------- NO model ----------------
+const NO = { mucShare: 0.70, cssMax: 8000, tauRec: 120, Fside: 1e-4, ethN: 8, proto: 0 };   // calibrated 2026-11-22 (one-box air + mucosal store, results/no_kinetics_store.md)
+const PROTOS = [
+  { name: '10秒ハミングを3回（休み3秒）', seq: [['silent', 5], ['in', 3], ['hum', 10], ['in', 3], ['hum', 10], ['in', 3], ['hum', 10], ['in', 3], ['silent', 5]] },
+  { name: '3分休んでもう1回', seq: [['silent', 5], ['in', 3], ['hum', 10], ['in', 3], ['hum', 10], ['in', 3], ['rest', 180], ['hum', 10], ['in', 3], ['silent', 5]] },
+];
+function sinusSet() {
+  // [sinus, count]
+  return SINUS.map(s => ({ s, n: s.id === 'eth' ? NO.ethN : 1 }));
+}
+function simulateNO(p0override) {
+  const keepP0 = P0; if (p0override) P0 = p0override;
+  const set = sinusSet().map(({ s, n }) => {
+    const r = solve(s, fCur);
+    const V = s.V;                                    // mL
+    const S = 4.836 * Math.pow(V, 2 / 3);             // cm^2, sphere
+    return { s, n, V, S, kD: r.closed ? 0 : r.rateD, kH: r.closed ? 0 : r.rate, closed: r.closed };
+  });
+  P0 = keepP0;
+  // sinus air = one well-mixed box; mucosal store (STORE) scaled with area/volume relative to the maxillary sinus,
+  // fed by all the production, losing NO on NO.tauRec; the maxillary air sits at cssMax when quiet
+  const kl = 1 / NO.tauRec, sv = set[0].S / set[0].V;
+  const withStore = x => { const f = (x.S / x.V) / sv; x.sg = STORE.sigma * f; x.ge = f / STORE.tauEx; return x; };
+  const ss = (x, P, kD) => { const C = P / (x.sg * kl * (1 + kD / x.ge) + kD); return { C, Sv: C * (1 + kD / x.ge) }; };
+  const ppaOf = (x, kD) => (x.sg * kl * NO.cssMax * (1 + kD / x.ge) + kD * NO.cssMax) * x.V / x.S;   // ppb*mL/s per cm^2
+  set.forEach(withStore);
+  const prodPerArea = ppaOf(set[0], Math.max(set[0].kD, 0));
+  set.forEach(x => { x.P = prodPerArea * x.S / x.V; const q = ss(x, x.P, x.kD); x.C = q.C; x.Sv = q.Sv; x.Css = q.C; });
+  const sinusFluxQuiet = set.reduce((a, x) => a + x.n * x.V * x.kD * x.Css, 0);   // ppb*mL/s
+  // mucosal source defined from its share of quiet nasal NO (healthy reference: all ostia open)
+  const ref = sinusSet().map(({ s, n }) => { const keepM = MUC, keepU = MUCUS; MUC = 0; MUCUS = 0; const r = solve(s, fCur); MUC = keepM; MUCUS = keepU; return withStore({ s, n, V: s.V, S: 4.836 * Math.pow(s.V, 2 / 3), kD: r.rateD }); });
+  const pRef = ppaOf(ref[0], ref[0].kD);
+  const refFlux = ref.reduce((a, x) => a + x.n * x.V * x.kD * ss(x, pRef * x.S / x.V, x.kD).C, 0);
+  const M = refFlux * NO.mucShare / (1 - NO.mucShare);            // ppb*mL/s from nasal mucosa
+  const F = NO.Fside * 1e6;                                         // mL/s
+  const dt = 0.05, out = [];
+  let t = 0;
+  for (const [type, dur] of PROTOS[NO.proto].seq) {
+    const n = Math.round(dur / dt);
+    for (let i = 0; i < n; i++) {
+      let src = 0;
+      set.forEach(x => {
+        const k = x.kD + (type === 'hum' ? x.kH : 0);
+        src += x.n * x.V * k * x.C;
+        const ex = x.ge * (x.Sv - x.C);
+        x.C += dt * (ex - k * x.C); x.Sv += dt * (x.P - x.sg * kl * x.Sv - ex) / x.sg;
+      });
+      const exhaling = type === 'silent' || type === 'hum';
+      if (i % 4 === 0) out.push({ t, type, c: exhaling ? (M + src) / F : null, cmx: set[0].C });
+      t += dt;
+    }
+  }
+  return { out, set, quiet: (M + sinusFluxQuiet) / F, Mshare: M / (M + sinusFluxQuiet) };
+}
+const hNO = $('cNO'), cNO = document.createElement('canvas'); hNO.appendChild(cNO);
+let hovNO = null, noRes = null;
+cNO.addEventListener('pointermove', e => { const r = cNO.getBoundingClientRect(); hovNO = { x: e.clientX - r.left, y: e.clientY - r.top, cx: e.clientX, cy: e.clientY }; drawNO(); });
+cNO.addEventListener('pointerleave', () => { hovNO = null; tip.style.display = 'none'; drawNO(); });
+function drawNO() {
+  if (!noRes) return;
+  const ctx = cNO.getContext('2d'), w = hNO.clientWidth, h = Math.max(200, Math.round(w * 0.36)), dpr = Math.min(devicePixelRatio || 1, 2);
+  cNO.width = Math.round(w * dpr); cNO.height = Math.round(h * dpr); cNO.style.height = h + 'px'; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  const pts = noRes.out, tmax = pts[pts.length - 1].t;
+  const box = { x: 46, y: 16, w: w - 58, h: h - 16 - 36 };
+  const ymax = Math.max(...pts.filter(p => p.c != null).map(p => p.c)) * 1.12;
+  const X = t => box.x + t / tmax * box.w, Y = v => box.y + box.h - v / ymax * box.h;
+  ctx.font = '11px system-ui, -apple-system, sans-serif';
+  // hum bands
+  ctx.fillStyle = css('--grid'); let st = null;
+  pts.forEach((p, i) => { const hm = p.type === 'hum'; if (hm && st == null) st = p.t; if ((!hm || i === pts.length - 1) && st != null) { ctx.fillRect(X(st), box.y, X(p.t) - X(st), box.h); st = null; } });
+  ctx.strokeStyle = css('--grid'); ctx.fillStyle = css('--text-muted'); ctx.lineWidth = 1; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  const step = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000].find(v => ymax / v <= 5) || 10000;
+  for (let v = 0; v <= ymax; v += step) { const y = Y(v); ctx.beginPath(); ctx.moveTo(box.x, y + .5); ctx.lineTo(box.x + box.w, y + .5); ctx.stroke(); ctx.fillText(v, box.x - 5, y); }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  const ts = tmax > 120 ? [0, 30, 60, 120, 180, 240] : [0, 10, 20, 30, 40, 50];
+  ts.filter(v => v <= tmax).forEach(v => ctx.fillText(v, X(v), box.y + box.h + 5));
+  ctx.strokeStyle = css('--axis'); ctx.beginPath(); ctx.moveTo(box.x, box.y + box.h + .5); ctx.lineTo(box.x + box.w, box.y + box.h + .5); ctx.stroke();
+  ctx.fillStyle = css('--text-secondary'); ctx.textAlign = 'right'; ctx.fillText('時間 (秒)', box.x + box.w, box.y + box.h + 20);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText('鼻から出るNO (ppb)', 2, box.y - 2);
+  ctx.strokeStyle = css('--s1'); ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.beginPath(); let pen = false;
+  pts.forEach(p => { if (p.c == null) { pen = false; return; } const x = X(p.t), y = Y(p.c); pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true; }); ctx.stroke();
+  if (hovNO) {
+    const tt = (hovNO.x - box.x) / box.w * tmax; const p = pts.reduce((a, b) => Math.abs(b.t - tt) < Math.abs(a.t - tt) ? b : a);
+    const x = X(p.t); ctx.strokeStyle = css('--axis'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + .5, box.y); ctx.lineTo(x + .5, box.y + box.h); ctx.stroke();
+    const lab = { silent: '静かな呼気', hum: 'ハミング', in: '吸気', rest: '休憩' }[p.type];
+    showTip(`<b>${p.t.toFixed(1)} 秒</b>　<span class="m">${lab}</span><br>` + (p.c != null ? `<span class="m">鼻のNO</span> ${p.c.toFixed(0)} ppb<br>` : '') + `<span class="m">上顎洞のNO</span> ${(p.cmx / 1000).toFixed(2)} ppm`, hovNO.cx, hovNO.cy);
+  }
+}
+function humPeaks(out) {
+  const peaks = []; let cur = null;
+  out.forEach(p => { if (p.type === 'hum') { cur = Math.max(cur || 0, p.c); } else if (cur != null) { peaks.push(cur); cur = null; } });
+  if (cur != null) peaks.push(cur);
+  return peaks;
+}
+// mean nasal NO over the last 8 s of the first 10-s hum (how Maniscalco 2003 and Shusterman 2007 report it)
+function humMean(out) {
+  const seg = []; for (const p of out) { if (p.type === 'hum') seg.push(p); else if (seg.length) break; }
+  const tail = seg.slice(Math.round(seg.length * 0.2));
+  return tail.reduce((a, p) => a + p.c, 0) / tail.length;
+}
+function ratioAt(p0) { const r = simulateNO(p0); const pk = humPeaks(r.out); return pk[0] / r.quiet; }
+function meanAt(p0) { const r = simulateNO(p0); return humMean(r.out) / r.quiet; }
+// smallest P0 whose mean ratio reaches the target (the mean saturates and then falls, so scan first)
+function needMean(target) {
+  let prev = 5, best = { v: 0, p: 5 };
+  for (let i = 1; i <= 30; i++) {
+    const p = 5 * Math.pow(400, i / 30), v = meanAt(p);
+    if (v > best.v) best = { v, p };
+    if (v >= target) { let lo = prev, hi = p; for (let k = 0; k < 18; k++) { const m = Math.sqrt(lo * hi); if (meanAt(m) >= target) hi = m; else lo = m; } return { need: hi }; }
+    prev = p;
+  }
+  return { need: null, max: best.v, at: best.p };
+}
+function runNO() {
+  noRes = simulateNO();
+  const pk = humPeaks(noRes.out);
+  const ratio = pk[0] / noRes.quiet;
+  const mean = humMean(noRes.out) / noRes.quiet;
+  const step = pk.length > 1 ? pk[1] / pk[0] : NaN;
+  const recov = NO.proto === 1 && pk.length > 2 ? pk[pk.length - 1] / pk[0] : NaN;
+  const lastSilent = noRes.out.filter(p => p.type === 'silent').slice(-5).reduce((a, p, _, arr) => a + p.c / arr.length, 0);
+  const postDrop = 1 - lastSilent / noRes.quiet;
+  // pressure needed for the measured mean increase (4.2-4.7x; use 4.2)
+  const nm = needMean(4.2);
+  const ok = (v, lo2, hi2) => isFinite(v) ? (v >= lo2 && v <= hi2 ? '<span style="color:var(--s3)">✓</span>' : '<span style="color:var(--s2)">!</span>') : '';
+  $('noCmp').innerHTML = `<tr><th>項目</th><th class="num">モデル</th><th>文献</th><th></th></tr>
+    <tr><td>ハミング中の鼻NOの平均（10秒の最後の8秒）÷ 静かな呼気</td><td class="num">${mean.toFixed(1)}倍</td><td>4.2〜4.7倍</td><td>${ok(mean, 3.5, 6)}</td></tr>
+    <tr><td>初回の山 ÷ 静かな呼気（参考）</td><td class="num">${ratio.toFixed(1)}倍</td><td>15倍（測り方の詳細は未確認）</td><td></td></tr>
+    <tr><td>2回目の山 ÷ 1回目の山</td><td class="num">${isFinite(step) ? (step * 100).toFixed(0) + '%' : '—'}</td><td>反復で段階的に低下</td><td>${ok(step, 0.2, 0.9)}</td></tr>
+    <tr><td>3分休んだ後の山 ÷ 1回目の山（参考）</td><td class="num">${isFinite(recov) ? (recov * 100).toFixed(0) + '%' : '（「3分休んで」を選択）'}</td><td>3分おきに繰り返すと毎回ほぼ同じ（手順が違うので判定しない）</td><td></td></tr>
+    <tr><td>反復ハミング直後の静かな呼気のNOの低下</td><td class="num">${NO.proto === 0 ? (postDrop * 100).toFixed(0) + '%' : '—'}</td><td>5〜50%</td><td>${NO.proto === 0 ? ok(postDrop, 0.05, 0.5) : ''}</td></tr>`;
+  const mx = noRes.set[0];
+  $('noText').innerHTML = `いまの設定（${fCur} Hz、${P0} Pa${HARM ? '、倍音あり' : ''}）では、ハミング中の鼻のNOは平均で<b>${mean.toFixed(1)}倍</b>（最初の山は ${ratio.toFixed(1)}倍）になります。` +
+    (nm.need ? ` 測定（10秒の平均で4.2〜4.7倍）に届くには、鼻腔内の音圧振幅が<b>約${nm.need.toFixed(0)} Pa</b>必要という計算です。` : ` この設定では音圧を上げても平均は最大 ${nm.max.toFixed(1)}倍（${nm.at.toFixed(0)} Pa 付近）で頭打ちです。上顎洞がハミングの途中で空になるためです。`) +
+    ` 静かな呼気のNOのうち副鼻腔から来るぶんは${((1 - noRes.Mshare) * 100).toFixed(0)}%で、その内訳は小さな副鼻腔（拡散が速い篩骨蜂巣・前頭洞）が大きく、ハミングの山はほぼ上顎洞と蝶形骨洞から来ます。` +
+    (mx.closed ? ' 上顎洞の自然口がふさがっているため、ハミングの山はほとんど出ません。' : '');
+  drawNO();
+}
+PROTOS.forEach((pr, i) => { const b = document.createElement('button'); b.textContent = pr.name; b.className = i === 0 ? 'on' : ''; b.onclick = () => { NO.proto = i; [...$('protoSeg').children].forEach(x => x.classList.toggle('on', x === b)); runNO(); }; $('protoSeg').appendChild(b); });
+$('msh').addEventListener('input', e => { NO.mucShare = +e.target.value / 100; $('mshv').textContent = e.target.value; runNO(); });
+$('css').addEventListener('input', e => { NO.cssMax = +e.target.value * 1000; $('cssv').textContent = e.target.value; runNO(); });
+$('taur').addEventListener('input', e => { NO.tauRec = +e.target.value * 60; $('taurv').textContent = (+e.target.value).toFixed(1); runNO(); });
+$('fl').addEventListener('input', e => { NO.Fside = +e.target.value * 1e-3; $('flv').textContent = (+e.target.value).toFixed(2); runNO(); });
+addEventListener('resize', drawNO);
+// ---------------- boot ----------------
+buildParams(); buildBars(); update(); renderBars(); runNO();
+addEventListener('resize', draw);
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { buildParams(); buildBars(); update(); renderBars(); });
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

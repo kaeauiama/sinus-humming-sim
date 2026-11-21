@@ -1,0 +1,6 @@
+# Keep LF in the working tree on every OS (global core.autocrlf=true would otherwise check out CRLF,
+# and dist/ must stay byte-identical to what build/assemble.py writes).
+* text=auto eol=lf
+*.gz binary
+*.png binary
+*.npy binary

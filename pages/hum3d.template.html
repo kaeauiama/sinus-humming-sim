@@ -1,0 +1,973 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ハミング換気 3D</title>
+<style>
+:root {
+  --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #e2e0da;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+  --stage: #e2e6eb; --glass-head: #34506e; --glass-eye: #55657a; --glass-cav: #b03c58; --ost: #ffffff;
+  --glow: #7fb6ff; --lab: rgba(255, 255, 255, .86);
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface-0: #111110; --surface-1: #1a1a19; --border: #2e2e2b;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+    --stage: #0c1015; --glass-head: #a9c1d9; --glass-eye: #dfe7f0; --glass-cav: #ff7d98; --ost: #f4f8ff;
+    --glow: #8cc0ff; --lab: rgba(22, 24, 28, .82);
+  }
+}
+:root[data-theme="dark"] {
+  --surface-0: #111110; --surface-1: #1a1a19; --border: #2e2e2b;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+  --stage: #0c1015; --glass-head: #a9c1d9; --glass-eye: #dfe7f0; --glass-cav: #ff7d98; --ost: #f4f8ff;
+  --glow: #8cc0ff; --lab: rgba(22, 24, 28, .82);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+  font: 15px/1.65 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 12px 16px 48px; }
+h1 { font-size: 20px; margin: 6px 0 4px; }
+h2 { font-size: 16px; margin: 0 0 6px; }
+p { margin: 6px 0; }
+.lead { color: var(--text-secondary); font-size: 14px; margin: 0 0 10px; }
+.seg { display: flex; gap: 3px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+.seg button { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text-secondary);
+  padding: 8px 2px; border-radius: 7px; font: inherit; font-size: 13.5px; line-height: 1.25; cursor: pointer; }
+.seg button.on { background: var(--s1); color: #fff; }
+.stage { position: relative; margin-top: 8px; height: min(60vh, 560px); min-height: 330px; border-radius: 12px;
+  overflow: hidden; background: var(--stage); border: 1px solid var(--border); touch-action: none; user-select: none; -webkit-user-select: none; }
+.stage canvas { width: 100%; height: 100%; display: block; }
+.labs { position: absolute; inset: 0; pointer-events: none; }
+.lab { position: absolute; left: 0; top: 0; font-size: 11.5px; line-height: 1.3; padding: 1px 6px; border-radius: 6px;
+  background: var(--lab); color: var(--text-primary); white-space: nowrap; will-change: transform; }
+.hud { position: absolute; left: 8px; top: 8px; padding: 4px 10px 5px; border-radius: 9px; background: var(--lab); line-height: 1.2; }
+.hud .hzv { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.hud .hzv small { font-size: 13px; font-weight: 500; margin-left: 2px; color: var(--text-secondary); }
+.hud .st { font-size: 12.5px; color: var(--text-secondary); }
+.hud.hum .st { color: var(--s1); font-weight: 600; }
+.level { position: absolute; left: 0; bottom: 0; height: 4px; width: 0; background: var(--s1); opacity: .8; transition: width .08s; }
+.hint { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); font-size: 12px; padding: 2px 9px; border-radius: 7px;
+  background: var(--lab); color: var(--text-secondary); white-space: nowrap; pointer-events: none; }
+.back { position: absolute; right: 8px; top: 8px; font: inherit; font-size: 13px; padding: 5px 11px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--lab); color: var(--text-primary); cursor: pointer; display: none; }
+.busy { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; font-size: 14px; color: var(--text-secondary); }
+.busy.on { display: flex; }
+.ctrl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+@media (min-width: 560px) { .ctrl { grid-template-columns: repeat(4, auto); justify-content: start; } }
+.ctrl button { font: inherit; font-size: 14px; padding: 8px 13px; border-radius: 9px; border: 1px solid var(--border);
+  background: var(--surface-1); color: var(--text-primary); cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+.ctrl button.on { border-color: var(--s1); color: var(--s1); }
+.ctrl button.primary { background: var(--s1); border-color: var(--s1); color: #fff; }
+#bHold.on { background: var(--s1); border-color: var(--s1); color: #fff; }
+.pstat { font-size: 13px; color: var(--text-secondary); margin-top: 6px; }
+.micnote { font-size: 12px; color: var(--text-muted); }
+.hzrow { display: flex; align-items: center; gap: 8px; width: 100%; font-size: 13.5px; margin-top: 6px; }
+.hzrow input { flex: 1; min-width: 0; accent-color: var(--s1); }
+.hzrow output { min-width: 58px; text-align: right; font-variant-numeric: tabular-nums; }
+.bars { margin-top: 10px; display: grid; grid-template-columns: auto 1fr auto; gap: 5px 10px; align-items: center; font-size: 13.5px; }
+.bars .tr { height: 10px; border-radius: 5px; background: var(--border); overflow: hidden; }
+.bars .fl { height: 100%; width: 0; background: var(--s1); border-radius: 5px; }
+.bars .v { font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--text-secondary); margin-top: 8px; }
+.sw { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-top: 12px; }
+.card ul { margin: 4px 0; padding-left: 1.2em; }
+.card li { margin: 3px 0; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.tbl th, .tbl td { padding: 5px 4px; border-bottom: 1px solid var(--border); text-align: right; }
+.tbl th:first-child, .tbl td:first-child { text-align: left; }
+.tbl th { font-weight: 600; color: var(--text-secondary); font-size: 12px; }
+.scroll { overflow-x: auto; }
+.note { font-size: 12.5px; color: var(--text-muted); }
+.err { color: var(--s2); }
+</style>
+</head>
+<body>
+<main>
+  <h1>ハミングの換気を 3D で見る</h1>
+  <p class="lead">マイクで声の高さ（Hz）を取り、副鼻腔の空気がどれだけ入れ替わるかをその場で計算して、架空の頭の中に色で見せます。指で回せます（2 本指で拡大・縮小、ダブルタップで元の向き）。</p>
+
+  <div class="seg" id="views"></div>
+
+  <div class="stage" id="stage">
+    <canvas id="cv"></canvas>
+    <div class="labs" id="labs"></div>
+    <div class="hud" id="hud"><div class="hzv"><span id="hzv">150</span><small>Hz</small></div><div class="st" id="hst">—</div></div>
+    <button class="back" id="bBack">全体に戻る</button>
+    <div class="hint" id="hint">上顎洞をタップすると拡大します</div>
+    <div class="level" id="level"></div>
+    <div class="busy" id="busy">形を作っています…</div>
+  </div>
+
+  <div class="ctrl">
+    <button id="bMic" class="primary">マイクを使う</button>
+    <button id="bHold">押している間ハミング</button>
+    <button id="bDemo" class="on">自動デモ</button>
+    <button id="bReset">最初から</button>
+  </div>
+  <div class="pstat" id="pstat">自動デモ中：10 秒ハミングして 15 秒休む、をくり返しています。</div>
+  <div class="micnote" id="micNote">マイクの音は端末の中だけで解析し、どこにも送信・保存しません。</div>
+  <label class="hzrow">マイクを使わないときの音の高さ <input id="fHz" type="range" min="100" max="300" step="5" value="150"><output id="oHz">150 Hz</output></label>
+
+  <div class="bars" id="bars"></div>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--s1)"></span>入れ替わった空気（鼻腔から入った空気）</span>
+    <span><span class="sw" style="background:var(--s2)"></span>もとの空気（NO が多い）</span>
+    <span><span class="sw" style="background:var(--glow)"></span>自然口（光の脈は実際の 100 分の 1 の速さ）</span>
+  </div>
+
+  <div class="card">
+    <h2>何を見ているか</h2>
+    <ul>
+      <li><b>色</b>：洞の中の空気のうち、鼻腔から入ってきた空気の割合です。青いほど入れ替わっています。数字は「最初から」を押してからの、その種類の洞の平均です。</li>
+      <li><b>自然口の光</b>：ハミング中に、自然口（洞と鼻腔をつなぐ小さな穴）を空気が往復している印です。光の脈は、実際の往復（1 秒に 100〜300 回）の 100 分の 1 の速さで見せています。光の大きさは、往復の大きさです。拡大の画面と比べる画面では、自然口の中の青い粒が往復する空気柱です。</li>
+      <li><b>計算の流れ</b>：声の高さから、共鳴モデルで自然口を往復する空気の量を出します。次に、3D の流体計算から作った「混合の式」で、そのうち洞に残る割合を出します。最後に、洞の空気をよく混ざる 1 つの部屋として、入れ替わりを積み上げます（3D の流体計算で、洞の中は 2〜3 秒で混ざりきることを確かめてあります）。ハミングしていないときも、拡散（分子が混ざり合うこと）で少しずつ入れ替わります。</li>
+      <li>音圧は上顎洞の自然口で 180 Pa、倍音は弱め（1 オクターブごとに −12 dB）で計算しています。どちらも、人の NO の測定に合わせた値です。<b>声の大きさは使っていません。</b>マイクの音量は口からの距離や端末で変わるので、鼻の中の音圧は分からないからです。</li>
+      <li><b>上顎洞の色の広がり方</b>は、この架空の形で事前に回した 3D の流体計算（格子ボルツマン法、0.4 mm の格子、150 Hz・130 Pa・基本音だけ）から取っています。入れ替わった量は上の式で出し、それと同じ量になった時点の 3D の結果を見せています。拡大の画面では洞を透かし、中に入った新しい空気を青い霧で見せます。上顎洞以外は、洞全体を一様に塗っています。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>寸法と、いまの音の高さでの換気</h2>
+    <div class="scroll"><table class="tbl" id="tbl"></table></div>
+    <p class="note">形は架空で、特定の人の頭ではありません。表の寸法は文献の平均です。鼻腔は、少し曲がった鼻中隔と外側の壁のあいだの細い通り道で、外側の壁から 3 段の鼻甲介（鼻の中のひだ）が垂れ下がり、その下に鼻道があります。自然口は実際に開く場所（上顎洞は中鼻道、蝶形骨洞は鼻腔の奥の天井近く）に置きました。篩骨蜂巣は眼と鼻腔のあいだの箱を薄い骨の壁で 9 つの小部屋に仕切った形、蝶形骨洞は左右で少し違う不規則な形です。3D の形の容積は表の値と少し違い（篩骨蜂巣 1 室 0.4〜1.0 mL、蝶形骨洞 3.4〜3.9 mL）、色の計算にはその形の容積を使っています。上顎洞の自然口の太さ・長さは NasalSeg の 1 例から取り、蝶形骨洞と前頭洞の自然口の長さと篩骨蜂巣の開口は仮定です。「空気柱」は、1 往復で自然口を動く空気の長さ（往復の幅、基本音の分）です。「拡散だけ」はハミングせずにいるときの値で、「ハミング」はそれを含みます。</p>
+  </div>
+
+  <p class="note">これは、換気の物理を調べるための計算です。診断や治療の効果を示すものではありません。</p>
+</main>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
+// 3D LBM result for the maxillary sinus (results/lbm/<run>/field.*, inserted by build/build_hum3d.py); null = none
+const AGE = /*AGEFIELD*/null;
+const MAXC = AGE && AGE.sinus_centre_mm ? AGE.sinus_centre_mm : [29, 20, -4];
+
+// ===================== model (same as dist/hum-map.html, tools/model.mjs, tools/no_model.mjs) =====================
+const RHO = 1.14, C0 = 350, MU = 1.9e-5, KLOSS = 1.5, DNO = 2e-5;
+const MIX = { m: 0.695, x0: 1.68, n: 1.76, k: 1.15, p: 0.57, lam: 48 };
+const sat = (v, v0, n) => 1 - Math.exp(-Math.pow(Math.max(v, 0) / v0, n));
+const mixLaw = (x, ld) => MIX.m * sat(x, MIX.x0, MIX.n) * sat(x * ld, MIX.k, MIX.p) * Math.exp(-ld / MIX.lam);
+function lumped(Vml, dmm, Lmm, f, P) {
+  const r = dmm / 2e3, A = Math.PI * r * r, Lm = Lmm / 1e3, Le = Lm + 1.7 * r, Vm = Vml * 1e-6, w = 2 * Math.PI * f;
+  const M = RHO * Le / A, C = Vm / (RHO * C0 * C0), X = w * M - 1 / (w * C);
+  const Rl = Math.max(8 * MU * Lm / (Math.PI * r ** 4), (Lm / (Math.PI * r ** 3)) * Math.sqrt(2 * RHO * MU * w)) + RHO * w * w / (2 * Math.PI * C0);
+  const k = (8 / (3 * Math.PI)) * KLOSS * RHO / (2 * A * A);
+  let lo = 0, hi = P / Math.hypot(Rl, X);
+  for (let i = 0; i < 60; i++) { const q = (lo + hi) / 2; if (q * Math.hypot(Rl + k * q, X) > P) hi = q; else lo = q; }
+  const Vin = 2 * lo / w, L0 = Vin / A, x = L0 / Lm, eta = mixLaw(x, Lm / (2 * r));
+  return { kH: eta * Vin * f / Vm, kD: DNO * A / (Vm * Le), x, L0mm: L0 * 1e3 };
+}
+const P0 = 180, HARM = 2;   // calibrated defaults (one-box air + mucosal store, results/no_kinetics_store.md)
+// pressure ratio at each ostium relative to the maxillary ostium (results/ostium_pressure.json)
+const GF = [50, 53, 57, 61, 65, 70, 74, 80, 85, 91, 97, 104, 111, 118, 127, 135, 144, 154, 165, 176, 188, 201, 215, 230, 246, 262, 280, 300, 320, 342, 365, 391, 417, 446, 476, 509, 544, 581, 621, 664, 709, 758, 810, 865, 925, 988, 1056, 1128, 1206, 1288, 1376, 1471, 1572, 1679, 1795, 1918, 2049, 2190, 2340, 2500];
+const GT = {
+  sph: [1.444, 1.443, 1.442, 1.44, 1.439, 1.437, 1.436, 1.434, 1.432, 1.43, 1.428, 1.425, 1.422, 1.419, 1.415, 1.41, 1.405, 1.399, 1.391, 1.382, 1.371, 1.357, 1.341, 1.32, 1.299, 1.287, 1.321, 1.49, 1.679, 1.722, 1.687, 1.641, 1.603, 1.571, 1.543, 1.518, 1.494, 1.471, 1.447, 1.422, 1.395, 1.366, 1.334, 1.298, 1.258, 1.214, 1.163, 1.106, 1.041, 0.969, 0.886, 0.793, 0.688, 0.575, 0.455, 0.354, 0.339, 0.474, 0.736, 1.11],
+  fro: [0.851, 0.851, 0.851, 0.852, 0.852, 0.852, 0.852, 0.853, 0.853, 0.853, 0.853, 0.853, 0.853, 0.854, 0.854, 0.854, 0.854, 0.855, 0.855, 0.855, 0.855, 0.856, 0.856, 0.856, 0.857, 0.857, 0.858, 0.858, 0.859, 0.86, 0.861, 0.862, 0.863, 0.864, 0.865, 0.867, 0.869, 0.871, 0.873, 0.876, 0.879, 0.883, 0.887, 0.892, 0.898, 0.905, 0.913, 0.922, 0.933, 0.946, 0.961, 0.979, 1.001, 1.028, 1.061, 1.102, 1.155, 1.224, 1.318, 1.45],
+  ethA: [0.925, 0.926, 0.926, 0.926, 0.926, 0.926, 0.926, 0.926, 0.926, 0.926, 0.926, 0.927, 0.927, 0.927, 0.927, 0.927, 0.927, 0.927, 0.927, 0.928, 0.928, 0.928, 0.928, 0.928, 0.929, 0.929, 0.929, 0.929, 0.93, 0.93, 0.931, 0.931, 0.932, 0.933, 0.933, 0.934, 0.935, 0.937, 0.938, 0.94, 0.942, 0.944, 0.946, 0.949, 0.952, 0.956, 0.961, 0.966, 0.972, 0.979, 0.988, 0.998, 1.01, 1.025, 1.043, 1.066, 1.095, 1.133, 1.183, 1.252],
+  ethP: [1.296, 1.295, 1.294, 1.294, 1.293, 1.292, 1.291, 1.29, 1.288, 1.287, 1.286, 1.284, 1.282, 1.28, 1.277, 1.274, 1.271, 1.267, 1.262, 1.256, 1.249, 1.24, 1.228, 1.215, 1.2, 1.191, 1.21, 1.319, 1.45, 1.484, 1.463, 1.433, 1.409, 1.388, 1.371, 1.355, 1.341, 1.327, 1.313, 1.298, 1.283, 1.266, 1.247, 1.227, 1.203, 1.177, 1.147, 1.114, 1.075, 1.031, 0.98, 0.921, 0.852, 0.774, 0.683, 0.58, 0.469, 0.372, 0.374, 0.571],
+};
+function G(key, f) {
+  const t = GT[key]; if (!t) return 1;
+  if (f <= GF[0]) return t[0];
+  for (let i = 1; i < GF.length; i++) if (f <= GF[i]) {
+    const w = (Math.log(f) - Math.log(GF[i - 1])) / (Math.log(GF[i]) - Math.log(GF[i - 1]));
+    return t[i - 1] + (t[i] - t[i - 1]) * w;
+  }
+  return t[t.length - 1];
+}
+// hum rate with harmonics 2..6 at amplitude n^-HARM (as solve() in hum-map.html); x and L0 are the fundamental's
+function rates(V, d, L, gkey, f) {
+  const r = lumped(V, d, L, f, P0 * G(gkey, f)); let kH = r.kH;
+  for (let h = 2; h <= 6; h++) kH += lumped(V, d, L, f * h, P0 * Math.pow(h, -HARM) * G(gkey, f * h)).kH;
+  return { kH, kD: r.kD, x: r.x, L0mm: r.L0mm };
+}
+// fictional dimensions = literature means (results/sinus_dimensions_literature.md); maxillary ostium from NasalSeg P001
+const DIM = {
+  max: { V: 12.75, d: 2.8, L: 2.1, name: '上顎洞' },
+  sph: { V: 4.0, d: 2.2, L: 1.5, name: '蝶形骨洞' },
+  fro: { V: 2.9, d: 7.5, L: 4.0, name: '前頭洞' },
+  eth: { V: 0.4, d: 1.5, L: 1.5, name: '篩骨蜂巣' },
+};
+// the sinus air is one well-mixed box (long 3D runs, results/agefield_maxillary.md): n = remaining fraction of the
+// original air (fa mirrors it so the surface colouring stays uniform)
+function stepTwo(s, dt, hum) {
+  const k = (hum ? s.kH : 0) + s.kD;
+  s.n *= Math.exp(-k * dt); s.fa = s.n;
+}
+const exchanged = s => 1 - s.n;
+function exch10(kH, kD) { return 1 - Math.exp(-10 * (kH + kD)); }
+
+// ===================== signed distance functions (mm) =====================
+const hyp = Math.hypot;
+function sdEll(x, y, z, rx, ry, rz) {
+  const k0 = hyp(x / rx, y / ry, z / rz), k1 = hyp(x / (rx * rx), y / (ry * ry), z / (rz * rz));
+  return k1 > 1e-9 ? k0 * (k0 - 1) / k1 : -Math.min(rx, ry, rz);
+}
+function sdTaper(x, y, z, a, b, ra, rb) {
+  const bx = b[0] - a[0], by = b[1] - a[1], bz = b[2] - a[2], px = x - a[0], py = y - a[1], pz = z - a[2];
+  const t = Math.max(0, Math.min(1, (px * bx + py * by + pz * bz) / (bx * bx + by * by + bz * bz)));
+  return hyp(px - t * bx, py - t * by, pz - t * bz) - (ra + (rb - ra) * t);
+}
+const sdCap = (x, y, z, a, b, r) => sdTaper(x, y, z, a, b, r, r);
+function sdRBox(x, y, z, hx, hy, hz, r) {
+  const qx = Math.abs(x) - hx, qy = Math.abs(y) - hy, qz = Math.abs(z) - hz;
+  return hyp(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qy, qz), 0) - r;
+}
+function smin(a, b, k) { const h = Math.max(k - Math.abs(a - b), 0) / k; return Math.min(a, b) - h * h * k * 0.25; }
+const smax = (a, b, k) => -smin(-a, -b, k);
+const sph = (cx, cy, cz, r) => (x, y, z) => hyp(x - cx, y - cy, z - cz) - r;
+
+// x = left-right, y = forward (face at +y), z = up; origin near the middle of the nasal cavity
+function head(x, y, z) {
+  let d = sdEll(x, y + 28, z - 42, 74, 92, 82);
+  d = smin(d, sdEll(x, y + 8, z + 8, 64, 62, 62), 22);
+  d = smin(d, sdEll(x, y + 2, z + 48, 50, 54, 34), 18);
+  d = smin(d, sdEll(x, y - 62, z + 4, 11, 17, 26), 10);
+  return Math.max(d, -(z + 88));
+}
+// ---- nasal cavity: one airway per side between a slightly deviated septum and the lateral wall ----
+// Lateral wall at |x| = w(z) * a(y); roof and floor depend on y. Three scroll-like turbinates hang from the lateral
+// wall (an attachment lamina plus a body), leaving a meatus under and lateral to each; the ethmoid bulla bulges into
+// the middle meatus. Invented dimensions meant to look anatomical (mm). Same shape in geometry/build_fict.py.
+function interp(v, X, Y) { if (v <= X[0]) return Y[0]; for (let i = 1; i < X.length; i++) if (v <= X[i]) return Y[i - 1] + (Y[i] - Y[i - 1]) * (v - X[i - 1]) / (X[i] - X[i - 1]); return Y[Y.length - 1]; }
+const NW = { z: [-22, -15, -5, 4, 10, 16, 20, 24], w: [10, 12.5, 13, 14, 11.5, 7.5, 4.2, 3.2] };
+const NA = { y: [-30, -22, 28, 46, 54, 64], a: [0.85, 1, 1, 0.62, 0.78, 0.78] };
+const NR = { y: [-26, -21, 22, 56], z: [6, 24, 24, 0] };
+const NF = { y: [-30, 48, 62], z: [-22, -22, -18] };
+const wallX = (y, z) => interp(z, NW.z, NW.w) * interp(y, NA.y, NA.a);
+const septDev = (y, z) => 0.7 * Math.sin((y - 8) * 0.075) * Math.exp(-(((z + 6) / 13) ** 2));
+const TURB = [
+  { yc: 12, hy: 30, za: -8, zb: -18, gap: 1.6, rb: 3.6, t: 1.6 },     // inferior
+  { yc: 16, hy: 24, za: 8.5, zb: -0.5, gap: 1.5, rb: 2.3, t: 1.2 },   // middle
+  { yc: -6, hy: 13, za: 18.5, zb: 13, gap: 0.6, rb: 1.2, t: 1.0 },    // superior
+];
+function turbinate(ax, y, z, T) {
+  const bx = 1.1 + T.gap + T.rb, bz = (T.za + T.zb) / 2;
+  const body = sdEll(ax - bx, y - T.yc, z - bz, T.rb, T.hy, (T.za - T.zb) / 2);
+  const xw = wallX(y, T.za) + 1;
+  const lam = sdRBox(ax - (bx + xw) / 2, y - T.yc, z - (T.za - T.t / 2), (xw - bx) / 2, T.hy * 0.9, T.t / 2, 0.4);
+  return smin(body, lam, 1.2);
+}
+function nasal(x, y, z) {
+  const dv = septDev(y, z), as = x >= dv ? x - dv : dv - x, ax = Math.abs(x);
+  let d = 1.1 - as;                                                       // septum (deviated)
+  d = smax(d, ax - wallX(y, z), 2);                                       // lateral wall
+  d = smax(d, interp(y, NF.y, NF.z) - z, 3); d = smax(d, z - interp(y, NR.y, NR.z), 3);
+  d = smax(d, y - 62, 3); d = smax(d, -26 - y, 2);                        // nostril end, choana
+  let t = Math.min(turbinate(ax, y, z, TURB[0]), turbinate(ax, y, z, TURB[1]), turbinate(ax, y, z, TURB[2]));
+  t = Math.min(t, sdEll(ax - wallX(y, 6), y - 11, z - 6, 3, 5, 2.8));      // ethmoid bulla
+  d = smax(d, -t, 1.0);
+  const xa = ax;
+  d = Math.min(d, sdTaper(xa, y, z, [8, 49, 30], [8, 41, 12], 3.6, 6));    // frontal recess (hourglass below the ostium)
+  d = Math.min(d, sdCap(x, y, z, [0, -27, -8], [0, -42, -32], 10.5));      // nasopharynx
+  d = Math.min(d, sdCap(xa, y, z, [7.5, 58, -16], [8.5, 64, -27], 4.5));   // nostrils
+  return d;
+}
+function maxSDF(sd) {   // rounded pyramid, wide toward the nose, with a dip toward the teeth
+  return (x, y, z) => { const X = x * sd - MAXC[0], Y = y - MAXC[1], Z = z - MAXC[2], tp = 1 - 0.3 * Math.max(X / 12, 0);
+    return smin(sdEll(X, Y, Z, 12, 16 * tp, 15 * tp), sdEll(X + 1, Y - 4, Z + 11, 8, 10, 6), 5); };
+}
+function froSDF(sd) {   // fan of three lobes
+  return (x, y, z) => { const X = x * sd;
+    let d = sdEll(X - 12, y - 52, z - 45, 11, 6, 11); d = smin(d, sdEll(X - 7, y - 53, z - 55, 7, 5, 7), 3);
+    return smin(d, sdEll(X - 20, y - 51, z - 41, 7, 4.5, 6.5), 3); };
+}
+// sphenoid: irregular and a little asymmetric, with a lateral and a posterior-inferior recess; the sella turcica
+// presses in from above and behind; the ostium sits high on the front wall, into the sphenoethmoidal recess
+const SPH = { '1': { b: [8.8, -34.5, 15, 7.6, 9.2, 8.4], l: [15.5, -36.5, 11.5, 4.8, 6, 4.8] },
+              '-1': { b: [10, -35, 15.5, 8.4, 9.4, 8.8], l: [17, -37.5, 12, 5.4, 6.4, 5.2] } };
+function sphSDF(sd) {
+  const P = SPH[String(sd)], b = P.b, l = P.l;
+  return (x, y, z) => { const X = x * sd;
+    let d = sdEll(X - b[0], y - b[1], z - b[2], b[3], b[4], b[5]);
+    d = smin(d, sdEll(X - l[0], y - l[1], z - l[2], l[3], l[4], l[5]), 3);   // lateral recess
+    d = smin(d, sdEll(X - 6, y + 40.5, z - 8, 4.5, 4.5, 4.5), 3);              // posterior-inferior (clival) recess
+    d = smin(d, sdEll(X - 4.6, y + 27.5, z - 19, 3.4, 4.2, 3.8), 2.5);        // toward the ostium
+    d = smax(d, 7.5 - hyp(x, y + 39, z - 27), 2.5);                            // sella turcica
+    return smax(d, 0.8 - X, 0.8);                                              // intersinus septum
+  };
+}
+// ethmoid labyrinth: a block between the orbit and the upper nasal cavity, split into 9 cells per side
+// (Voronoi cells of jittered seeds with thin bony septa)
+function ethEnv(X, y, z) {
+  let d = wallX(y, z) + 1.0 - X;                                     // 1 mm of bone off the nasal wall
+  d = smax(d, X - (17.5 + 0.05 * (8 - y)), 2);                       // lamina papyracea, a little wider at the back
+  d = smax(d, z - 25, 2); d = smax(d, 10.5 - z, 2);
+  d = smax(d, y - 32, 3); d = smax(d, -15 - y, 3);
+  return smax(d, 13 - hyp(X - 32, y - 36, z - 24), 2);              // clear of the eye
+}
+const ETH_YZ = [[27, 14.5], [17, 14], [7, 15], [-3, 14.5], [-11, 14], [22, 21], [11, 22], [0, 21.5], [-9, 20.5]];
+function ethCells(sd, rnd) {
+  const seeds = ETH_YZ.map(([y0, z0]) => {
+    const y = y0 + (rnd() - 0.5) * 3, z = z0 + (rnd() - 0.5) * 2, xm = wallX(y, z) + 1, xl = 17.5 + 0.05 * (8 - y);
+    return [xm + (xl - xm) * (0.4 + 0.2 * rnd()), y, z];
+  });
+  return seeds.map((c, i) => {
+    const pl = seeds.filter((_, j) => j !== i).map(o => [nrm([o[0] - c[0], o[1] - c[1], o[2] - c[2]]), (o[0] + c[0]) / 2, (o[1] + c[1]) / 2, (o[2] + c[2]) / 2]);
+    const f = (x, y, z) => { const X = x * sd; let d = ethEnv(X, y, z);
+      for (const [u, mx, my, mz] of pl) d = smax(d, (X - mx) * u[0] + (y - my) * u[1] + (z - mz) * u[2] + 0.4, 0.8);
+      return d; };
+    return { f, c: [sd * c[0], c[1], c[2]] };
+  });
+}
+
+// ===================== meshing: surface nets =====================
+const CORNER = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1]];
+const EDGES = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
+function buildMesh(f, b0, b1, h, ostP) {
+  const nx = Math.ceil((b1[0] - b0[0]) / h) + 1, ny = Math.ceil((b1[1] - b0[1]) / h) + 1, nz = Math.ceil((b1[2] - b0[2]) / h) + 1;
+  const v = new Float32Array(nx * ny * nz); let inside = 0; const dists = ostP ? [] : null;
+  for (let k = 0, q = 0; k < nz; k++) { const z = b0[2] + k * h;
+    for (let j = 0; j < ny; j++) { const y = b0[1] + j * h;
+      for (let i = 0; i < nx; i++, q++) { const x = b0[0] + i * h; const d = f(x, y, z); v[q] = d;
+        if (d < 0) { inside++; if (dists) dists.push(hyp(x - ostP[0], y - ostP[1], z - ostP[2])); } } } }
+  const cnx = nx - 1, cny = ny - 1, cnz = nz - 1, sy = nx, sz = nx * ny;
+  const cell = new Int32Array(cnx * cny * cnz).fill(-1), P = [], cv = new Float32Array(8);
+  for (let k = 0; k < cnz; k++) for (let j = 0; j < cny; j++) for (let i = 0; i < cnx; i++) {
+    const base = i + nx * (j + ny * k); let mask = 0;
+    for (let c = 0; c < 8; c++) { const o = CORNER[c]; const val = v[base + o[0] + o[1] * sy + o[2] * sz]; cv[c] = val; if (val < 0) mask |= 1 << c; }
+    if (mask === 0 || mask === 255) continue;
+    let px = 0, py = 0, pz = 0, n = 0;
+    for (const [a, b] of EDGES) { const va = cv[a], vb = cv[b];
+      if ((va < 0) !== (vb < 0)) { const t = va / (va - vb), oa = CORNER[a], ob = CORNER[b];
+        px += oa[0] + t * (ob[0] - oa[0]); py += oa[1] + t * (ob[1] - oa[1]); pz += oa[2] + t * (ob[2] - oa[2]); n++; } }
+    cell[i + cnx * (j + cny * k)] = P.length / 3;
+    P.push(b0[0] + (i + px / n) * h, b0[1] + (j + py / n) * h, b0[2] + (k + pz / n) * h);
+  }
+  const I = [], C = (i, j, k) => cell[i + cnx * (j + cny * k)];
+  const quad = (a, b, c, d) => { if (a < 0 || b < 0 || c < 0 || d < 0) return; I.push(a, b, c, a, c, d); };
+  for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const q = i + nx * (j + ny * k), a = v[q] < 0;
+    if (i < nx - 1 && j > 0 && k > 0 && j < ny - 1 && k < nz - 1 && a !== (v[q + 1] < 0)) quad(C(i, j - 1, k - 1), C(i, j, k - 1), C(i, j, k), C(i, j - 1, k));
+    if (j < ny - 1 && i > 0 && k > 0 && i < nx - 1 && k < nz - 1 && a !== (v[q + sy] < 0)) quad(C(i - 1, j, k - 1), C(i - 1, j, k), C(i, j, k), C(i, j, k - 1));
+    if (k < nz - 1 && i > 0 && j > 0 && i < nx - 1 && j < ny - 1 && a !== (v[q + sz] < 0)) quad(C(i - 1, j - 1, k), C(i, j - 1, k), C(i, j, k), C(i - 1, j, k));
+  }
+  const nv = P.length / 3, Pf = new Float32Array(P), N = new Float32Array(nv * 3), S = new Float32Array(nv), e = h * 0.5;
+  if (dists) dists.sort((a, b) => a - b);
+  for (let m = 0; m < nv; m++) {
+    const x = Pf[3 * m], y = Pf[3 * m + 1], z = Pf[3 * m + 2];
+    const gx = f(x + e, y, z) - f(x - e, y, z), gy = f(x, y + e, z) - f(x, y - e, z), gz = f(x, y, z + e) - f(x, y, z - e);
+    const gl = hyp(gx, gy, gz) || 1; N[3 * m] = gx / gl; N[3 * m + 1] = gy / gl; N[3 * m + 2] = gz / gl;
+    if (dists && dists.length) {   // fraction of the sinus volume closer to the ostium than this point
+      const d = hyp(x - ostP[0], y - ostP[1], z - ostP[2]); let lo = 0, hi = dists.length;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (dists[mid] < d) lo = mid + 1; else hi = mid; }
+      S[m] = lo / dists.length;
+    }
+  }
+  return { P: Pf, N, S, I: new Uint32Array(I), vol: inside * h * h * h / 1000, tri: I.length / 3 };
+}
+function volumeOf(f, b0, b1, h) {
+  let n = 0;
+  for (let z = b0[2]; z <= b1[2]; z += h) for (let y = b0[1]; y <= b1[1]; y += h) for (let x = b0[0]; x <= b1[0]; x += h) if (f(x, y, z) < 0) n++;
+  return n * h * h * h / 1000;
+}
+const scaled = (f, c, s) => (x, y, z) => s * f(c[0] + (x - c[0]) / s, c[1] + (y - c[1]) / s, c[2] + (z - c[2]) / s);
+const nrm = v => { const l = hyp(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
+const addv = (p, d, s) => [p[0] + d[0] * s, p[1] + d[1] * s, p[2] + d[2] * s];
+function ostPath(fs, cav, start, dir) {   // leave the sinus wall along dir, then go on until the nasal cavity
+  const n = nrm(dir); let p = start.slice(), ex = null;
+  for (let i = 0; i < 2000; i++) {
+    p = addv(p, n, 0.05);
+    if (!ex) { if (fs(p[0], p[1], p[2]) > 0) ex = p.slice(); }
+    else if (cav(p[0], p[1], p[2]) < 0) {
+      const len = hyp(p[0] - ex[0], p[1] - ex[1], p[2] - ex[2]);
+      return { a: addv(ex, n, -0.9), b: addv(p, n, 0.9), mid: addv(ex, n, len / 2), dir: n, len: Math.max(len, 0.3) };
+    }
+  }
+  return null;
+}
+
+// ===================== WebGL2 =====================
+const cv = $('cv');
+const gl = cv.getContext('webgl2', { antialias: true, alpha: false, powerPreference: 'high-performance' });
+const VS = `#version 300 es
+layout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in float aS;
+uniform mat4 uMVP; out vec3 vP; out vec3 vN; out float vS;
+void main(){ vP=aP; vN=aN; vS=aS; gl_Position=uMVP*vec4(aP,1.); }`;
+const FS = `#version 300 es
+precision highp float;
+in vec3 vP; in vec3 vN; in float vS;
+uniform vec3 uEye, uLight, uCol, uCol2; uniform vec2 uFill; uniform int uMode, uPass; uniform float uA, uRim;
+out vec4 o;
+void main(){
+  vec3 N=normalize(vN), V=normalize(uEye-vP); float nv=dot(N,V);
+  if(uMode==2){
+    if(uPass==0 && nv>0.) discard;
+    if(uPass==1 && nv<=0.) discard;
+    float fr=pow(1.-abs(nv),2.2);
+    o=vec4(uCol*(0.8+0.2*abs(dot(N,uLight))), uA+uRim*fr); return;
+  }
+  vec3 c=uCol;
+  if(uMode==4){
+    if(uPass==0 && nv>0.) discard;
+    if(uPass==1 && nv<=0.) discard;
+    float fr=pow(1.-abs(nv),2.2);
+    o=vec4(mix(uCol2,uCol,clamp(vS,0.,1.))*(0.75+0.25*abs(dot(N,uLight))), uA+uRim*fr); return;
+  }
+  if(uMode==1){ float w=smoothstep(0.35,0.65,vS); c=mix(uCol2,uCol,mix(uFill.x,uFill.y,w)); }
+  if(uMode==3){ c=mix(uCol2,uCol,clamp(vS,0.,1.)); }
+  if(nv<0.) N=-N;
+  float dif=max(dot(N,uLight),0.), hemi=0.5+0.5*N.z, sp=pow(max(dot(reflect(-uLight,N),V),0.),28.);
+  o=vec4(c*(0.32+0.5*dif+0.18*hemi)+vec3(0.18)*sp,1.);
+}`;
+const PVS = `#version 300 es
+layout(location=0) in vec3 aP; layout(location=1) in float aR; layout(location=2) in vec4 aC;
+uniform mat4 uMVP; uniform float uScale; out vec4 vC;
+void main(){ vec4 c=uMVP*vec4(aP,1.); gl_Position=c; vC=aC; gl_PointSize=clamp(2.*aR*uScale/max(c.w,1e-3),2.,180.); }`;
+const PFS = `#version 300 es
+precision mediump float; in vec4 vC; out vec4 o;
+void main(){ vec2 q=gl_PointCoord*2.-1.; float r2=dot(q,q); if(r2>1.) discard; float a=1.-r2; o=vec4(vC.rgb, vC.a*a*a); }`;
+function compile(vs, fs) {
+  const p = gl.createProgram();
+  for (const [t, s] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]]) {
+    const sh = gl.createShader(t); gl.shaderSource(sh, s); gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+    gl.attachShader(p, sh);
+  }
+  gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const nm = gl.getActiveUniform(p, i).name; u[nm] = gl.getUniformLocation(p, nm); }
+  return { p, u };
+}
+let prog, pprog, pbuf, pvao;
+
+// ===================== 3D field (LBM) for the maxillary sinus =====================
+// AGE.snaps: cycles of the 3D run at which the field was saved; AGE.whole: the sinus-wide fresh fraction there.
+// The page computes how much of the sinus has been exchanged (two-compartment model, as before) and shows the 3D
+// pattern of the snapshot with the same sinus-wide amount (blending neighbours; scaling beyond the first and last).
+let AGEDATA = null, AGEVOX = 0, AGERG = null, vprog = null, vvao = null, vtex = [null, null], vtexKey = '';
+async function decodeAge() {
+  if (!AGE || typeof DecompressionStream === 'undefined') return;
+  try {
+    const bin = Uint8Array.from(atob(AGE.b64), ch => ch.charCodeAt(0));
+    const ds = new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'));
+    AGEDATA = new Uint8Array(await new Response(ds).arrayBuffer());
+    AGEVOX = AGE.dims[0] * AGE.dims[1] * AGE.dims[2];
+    if (AGEDATA.length !== AGEVOX * AGE.snaps.length) { console.warn('field size mismatch'); AGEDATA = null; return; }
+    AGERG = AGE.snaps.map((_, sn) => {   // RG8 per snapshot: R = fresh fraction, G = inside the sinus
+      const a = new Uint8Array(AGEVOX * 2);
+      for (let q = 0; q < AGEVOX; q++) { const v = AGEDATA[sn * AGEVOX + q]; if (v !== 255) { a[2 * q] = v; a[2 * q + 1] = 255; } }
+      return a;
+    });
+  } catch (e) { console.warn('field decode failed', e); AGEDATA = null; }
+}
+function sampleAge(sn, x, y, z) {   // page mm, right side; -1 = outside the sinus
+  const D = AGE.dims, st = AGE.step, o = AGE.origin;
+  const fi = (x - o[0]) / st, fj = (o[1] - y) / st, fk = (z - o[2]) / st;
+  const i0 = Math.floor(fi), j0 = Math.floor(fj), k0 = Math.floor(fk), base = sn * AGEVOX;
+  let s = 0, w = 0;
+  for (let c = 0; c < 8; c++) {
+    const i = i0 + (c & 1), j = j0 + (c >> 1 & 1), k = k0 + (c >> 2 & 1);
+    if (i < 0 || j < 0 || k < 0 || i >= D[0] || j >= D[1] || k >= D[2]) continue;
+    const v = AGEDATA[base + (k * D[1] + j) * D[0] + i]; if (v === 255) continue;
+    const wt = (1 - Math.abs(fi - i)) * (1 - Math.abs(fj - j)) * (1 - Math.abs(fk - k));
+    s += wt * v / 254; w += wt;
+  }
+  return w > 1e-4 ? s / w : -1;
+}
+function fieldForMesh(m, side) {   // fresh fraction just inside the wall at every vertex, for every snapshot
+  const nv = m.P.length / 3, ns = AGE.snaps.length, vals = new Float32Array(nv * ns);
+  for (let q = 0; q < nv; q++) {
+    const x = m.P[3 * q] * side, y = m.P[3 * q + 1], z = m.P[3 * q + 2], nx = m.N[3 * q] * side, ny = m.N[3 * q + 1], nz = m.N[3 * q + 2];
+    for (let sn = 0; sn < ns; sn++) {
+      let v = -1;
+      for (const dep of [1.0, 2.0, 3.5]) { v = sampleAge(sn, x - nx * dep, y - ny * dep, z - nz * dep); if (v >= 0) break; }
+      vals[sn * nv + q] = v >= 0 ? v : AGE.whole[sn];
+    }
+  }
+  return { vals, nv, ns, cur: new Float32Array(nv), lastE: -1 };
+}
+function ageBracket(E) {
+  const W = AGE.whole, n = W.length;
+  if (E <= W[0]) return { i: 0, j: 0, w: 0, lo: W[0] > 0 ? E / W[0] : 0, hi: 1 };
+  if (E >= W[n - 1]) return { i: n - 1, j: n - 1, w: 0, lo: 1, hi: (1 - E) / Math.max(1e-6, 1 - W[n - 1]) };
+  let i = 0; while (W[i + 1] < E) i++;
+  return { i, j: i + 1, w: (E - W[i]) / Math.max(1e-6, W[i + 1] - W[i]), lo: 1, hi: 1 };
+}
+const blendFresh = (a, b, br) => 1 - (1 - (a + (b - a) * br.w) * br.lo) * br.hi;
+function updateField(s) {
+  const F = s.field, E = exchanged(s.ph); if (Math.abs(E - F.lastE) < 0.002) return; F.lastE = E;
+  const br = ageBracket(E), nv = F.nv;
+  for (let q = 0; q < nv; q++) F.cur[q] = blendFresh(F.vals[br.i * nv + q], F.vals[br.j * nv + q], br);
+  gl.bindBuffer(gl.ARRAY_BUFFER, s.mesh.sbuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, F.cur);
+}
+const VVS = `#version 300 es
+layout(location=0) in vec3 aP; uniform mat4 uMVP; out vec3 vP;
+void main(){ vP=aP; gl_Position=uMVP*vec4(aP,1.); }`;
+const VFS = `#version 300 es
+precision highp float; precision highp sampler3D;
+in vec3 vP; uniform vec3 uEye, uBmin, uBmax, uOrigin, uDims, uCol; uniform float uStep, uW, uLo, uHi, uDen;
+uniform sampler3D uA, uB; out vec4 o;
+void main(){
+  vec3 rd=normalize(vP-uEye), inv=1./rd, t0=(uBmin-uEye)*inv, t1=(uBmax-uEye)*inv, tn3=min(t0,t1), tf3=max(t0,t1);
+  float tn=max(max(max(tn3.x,tn3.y),tn3.z),0.), tf=min(min(tf3.x,tf3.y),tf3.z);
+  if(tf<=tn) discard;
+  const int NS=72; float dt=(tf-tn)/float(NS); vec4 acc=vec4(0.);
+  for(int i=0;i<NS;i++){
+    vec3 p=uEye+rd*(tn+(float(i)+0.5)*dt);
+    vec3 t=(vec3((p.x-uOrigin.x)/uStep,(uOrigin.y-p.y)/uStep,(p.z-uOrigin.z)/uStep)+0.5)/uDims;
+    vec2 m=mix(texture(uA,t).rg, texture(uB,t).rg, uW);
+    if(m.g<0.02) continue;
+    float f=1.-(1.-(m.r/m.g)*uLo)*uHi;
+    float al=1.-exp(-sqrt(max(f,0.))*smoothstep(0.3,0.7,m.g)*uDen*dt);
+    acc.rgb+=(1.-acc.a)*al*uCol; acc.a+=(1.-acc.a)*al; if(acc.a>0.97) break;
+  }
+  o=acc;
+}`;
+function initVolume() {
+  vprog = compile(VVS, VFS);
+  const D = AGE.dims, st = AGE.step, o = AGE.origin;
+  const lo = [o[0] - st / 2, o[1] - (D[1] - 0.5) * st, o[2] - st / 2], hi = [o[0] + (D[0] - 0.5) * st, o[1] + st / 2, o[2] + (D[2] - 0.5) * st];
+  vprog.box = [lo, hi];
+  const P = [], I = [];
+  for (let c = 0; c < 8; c++) P.push(c & 1 ? hi[0] : lo[0], c & 2 ? hi[1] : lo[1], c & 4 ? hi[2] : lo[2]);
+  [[0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1], [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3]].forEach(f => I.push(f[0], f[1], f[2], f[0], f[2], f[3]));
+  vvao = gl.createVertexArray(); gl.bindVertexArray(vvao);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(P), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+  const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(I), gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  for (let t = 0; t < 2; t++) {
+    vtex[t] = gl.createTexture(); gl.bindTexture(gl.TEXTURE_3D, vtex[t]);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    for (const w of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) gl.texParameteri(gl.TEXTURE_3D, w, gl.CLAMP_TO_EDGE);
+    gl.texImage3D(gl.TEXTURE_3D, 0, gl.RG8, D[0], D[1], D[2], 0, gl.RG, gl.UNSIGNED_BYTE, AGERG[0]);
+  }
+}
+function drawVolume(M, eye, ph) {
+  const br = ageBracket(exchanged(ph)), key = br.i + ',' + br.j, D = AGE.dims;
+  if (key !== vtexKey) {
+    vtexKey = key; gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    [br.i, br.j].forEach((sn, t) => { gl.bindTexture(gl.TEXTURE_3D, vtex[t]); gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, 0, D[0], D[1], D[2], gl.RG, gl.UNSIGNED_BYTE, AGERG[sn]); });
+  }
+  const U = vprog.u; gl.useProgram(vprog.p);
+  gl.uniformMatrix4fv(U.uMVP, false, M); gl.uniform3fv(U.uEye, eye); gl.uniform3fv(U.uBmin, vprog.box[0]); gl.uniform3fv(U.uBmax, vprog.box[1]);
+  gl.uniform3fv(U.uOrigin, AGE.origin); gl.uniform3f(U.uDims, D[0], D[1], D[2]); gl.uniform1f(U.uStep, AGE.step); gl.uniform3fv(U.uCol, COL.fresh);
+  gl.uniform1f(U.uW, br.w); gl.uniform1f(U.uLo, br.lo); gl.uniform1f(U.uHi, br.hi); gl.uniform1f(U.uDen, 0.09);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_3D, vtex[0]); gl.uniform1i(U.uA, 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_3D, vtex[1]); gl.uniform1i(U.uB, 1);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+  gl.enable(gl.CULL_FACE); gl.cullFace(gl.FRONT);
+  gl.bindVertexArray(vvao); gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
+  gl.disable(gl.CULL_FACE); gl.activeTexture(gl.TEXTURE0);
+  gl.useProgram(prog.p);
+}
+
+function upload(m, dyn) {
+  const vao = gl.createVertexArray(); gl.bindVertexArray(vao); let sbuf = null;
+  [[0, m.P, 3], [1, m.N, 3], [2, m.S, 1]].forEach(([loc, data, sz]) => {
+    const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, loc === 2 && dyn ? gl.DYNAMIC_DRAW : gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, sz, gl.FLOAT, false, 0, 0);
+    if (loc === 2) sbuf = b;
+  });
+  const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.I, gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  return { vao, n: m.I.length, sbuf };
+}
+
+// ===================== scenes =====================
+// The physics lives in PHYS (one entry per sinus of the whole-head model). The close-up and the comparison
+// views draw other shapes but point at the same entries, so switching views keeps the state.
+const PHYS = [];
+function newScene(o) { return Object.assign({ glass: [], sinus: [], solid: [], labels: [], tri: 0, column: false }, o); }
+function addGlass(S, key, f, b0, b1, h, layer, a, rim) {
+  const m = buildMesh(f, b0, b1, h); S.tri += m.tri; S.glass.push({ mesh: upload(m), key, layer, a, rim });
+}
+function addSinus(S, o) {
+  let f = o.f, b0 = o.b0, b1 = o.b1;
+  if (o.Vt) {
+    const s = Math.cbrt(o.Vt / volumeOf(o.f, o.b0, o.b1, o.h * 1.2));
+    f = scaled(o.f, o.c, s);
+    b0 = o.b0.map((v, i) => o.c[i] + (v - o.c[i]) * s - 2 * o.h); b1 = o.b1.map((v, i) => o.c[i] + (v - o.c[i]) * s + 2 * o.h);
+  }
+  const op = ostPath(f, S.cav, o.start, o.dir);
+  if (!op) { console.warn('ostium not found', o.type, o.c); return null; }
+  const m = buildMesh(f, b0, b1, o.h, op.a); S.tri += m.tri;
+  const r = o.d / 2, hb = Math.max(0.2, o.d / 5);
+  const t = buildMesh((x, y, z) => sdCap(x, y, z, op.a, op.b, r),
+    [0, 1, 2].map(i => Math.min(op.a[i], op.b[i]) - r - 2 * hb), [0, 1, 2].map(i => Math.max(op.a[i], op.b[i]) + r + 2 * hb), hb);
+  S.tri += t.tri; S.solid.push({ mesh: upload(t), key: 'ost' });
+  let ph = o.ph;
+  if (!ph) { ph = { type: o.type, side: o.side, gkey: o.gkey, V: m.vol, d: o.d, L: o.L, n: 1, fa: 1, kH: 0, kD: 0, x: 0 }; PHYS.push(ph); }
+  const field = o.type === 'max' && AGEDATA ? fieldForMesh(m, o.side) : null;
+  if (field) m.S = field.cur;
+  const so = { type: o.type, side: o.side, ph, mesh: upload(m, !!field), op, c: o.c, field };
+  S.sinus.push(so); return so;
+}
+const box = (c, r) => ({ b0: [c[0] - r[0], c[1] - r[1], c[2] - r[2]], b1: [c[0] + r[0], c[1] + r[1], c[2] + r[2]] });
+function rand(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+
+function sceneAll() {
+  const S = newScene({ cav: nasal, target: [0, 8, 10], fit: [96, 96], yaw: 1.05, pitch: 0.22 });
+  addGlass(S, 'head', head, [-82, -125, -92], [82, 86, 128], 3.5, 0, 0.018, 0.34);
+  for (const sd of [-1, 1]) addGlass(S, 'eye', sph(sd * 32, 36, 24, 12), [sd * 32 - 14, 22, 10], [sd * 32 + 14, 50, 38], 1.2, 1, 0.05, 0.45);
+  addGlass(S, 'cav', nasal, [-17, -54, -46], [17, 70, 28], 1.2, 2, 0.05, 0.6);
+  const rnd = rand(7);
+  for (const sd of [-1, 1]) {
+    const cM = [sd * MAXC[0], MAXC[1], MAXC[2]], cF = [sd * 13, 52, 46], cS = [sd * 9.5, -34, 15];
+    addSinus(S, { type: 'max', side: sd, gkey: 'max', f: maxSDF(sd), c: cM, ...box(cM, [16, 21, 24]), h: 1.0, Vt: DIM.max.V, start: [sd * 24, 20, 2], dir: [-sd, 0, 0.1], d: DIM.max.d, L: DIM.max.L });
+    addSinus(S, { type: 'fro', side: sd, gkey: 'fro', f: froSDF(sd), c: cF, ...box(cF, [18, 11, 18]), h: 0.7, Vt: DIM.fro.V, start: [sd * 8, 51, 40], dir: [0, -0.35, -1], d: DIM.fro.d, L: DIM.fro.L });
+    addSinus(S, { type: 'sph', side: sd, gkey: 'sph', f: sphSDF(sd), c: cS, ...box(cS, [16, 15, 14]), h: 0.6, start: [sd * 4.5, -28, 19], dir: [0, 1, 0], d: DIM.sph.d, L: DIM.sph.L });
+    for (const e of ethCells(sd, rnd)) {
+      const c = e.c;
+      addSinus(S, { type: 'eth', side: sd, gkey: c[1] > 5 ? 'ethA' : 'ethP', f: e.f, c, ...box(c, [10, 12, 9]), h: 0.6, start: c, dir: [-sd, 0, c[2] > 18 ? -0.15 : -0.3], d: DIM.eth.d, L: DIM.eth.L });
+    }
+  }
+  S.labels = [
+    { type: 'max', at: s => s.c }, { type: 'fro', at: s => s.c }, { type: 'sph', at: s => s.c }, { type: 'eth', at: s => s.c },
+    { text: '鼻腔', p: [0, 20, -14] }, { text: '目', p: [32, 40, 24] },
+  ];
+  return S;
+}
+function sceneZoom() {   // the right maxillary sinus, its ostium and the middle meatus around it
+  const cav = (x, y, z) => smax(nasal(x, y, z), sdRBox(x - 9, y - 20, z + 4, 8.5, 26, 20, 0), 1);
+  const S = newScene({ cav, target: [19, 20, 0], fit: [58, 58], yaw: 2.05, pitch: 0.28, column: true });
+  addGlass(S, 'cav', cav, [-1, -9, -27], [19, 49, 19], 0.6, 2, 0.05, 0.6);
+  const cM = MAXC.slice(), ph = PHYS.find(p => p.type === 'max' && p.side === 1);
+  const so = addSinus(S, { type: 'max', side: 1, ph, f: maxSDF(1), c: cM, ...box(cM, [16, 21, 24]), h: 0.5, Vt: DIM.max.V, start: [24, 20, 2], dir: [-1, 0, 0.1], d: DIM.max.d, L: DIM.max.L });
+  if (so && so.field && vprog) { so.see = true; S.volume = so; }   // see-through, with the 3D plume inside
+  S.labels = [{ type: 'max', at: s => [s.c[0] + 4, s.c[1], s.c[2] - 4] }, { text: '自然口', ost: true, dy: -22 }, { text: '鼻腔（中鼻道）', p: [8, 30, -6] }];
+  return S;
+}
+function sceneCompare() {   // the four kinds at true size on one straight tube, with true ostium sizes
+  const tube = (x, y, z) => sdCap(x, y, z, [0, 0, -82], [0, 0, 72], 7);
+  const S = newScene({ cav: tube, target: [-16, 0, -4], fit: [80, 160], yaw: Math.PI / 2, pitch: 0.12, column: true });
+  addGlass(S, 'cav', tube, [-9, -9, -91], [9, 9, 81], 0.8, 2, 0.06, 0.6);
+  const eth = PHYS.filter(p => p.type === 'eth' && p.side === 1);
+  const rows = [['max', 52, PHYS.find(p => p.type === 'max' && p.side === 1)], ['sph', 14, PHYS.find(p => p.type === 'sph' && p.side === 1)],
+    ['fro', -16, PHYS.find(p => p.type === 'fro' && p.side === 1)], ['eth', -42, eth[0]], ['eth', -56, eth[4]], ['eth', -70, eth[7]]];
+  for (const [type, z, ph] of rows) {
+    const D = DIM[type], r = Math.cbrt(3 * D.V * 1000 / (4 * Math.PI)), c = [-(7 + D.L + r), 0, z];
+    addSinus(S, { type, side: 1, ph, f: sph(c[0], c[1], c[2], r), c, ...box(c, [r + 2, r + 2, r + 2]), h: type === 'eth' ? 0.4 : 0.6, start: c, dir: [1, 0, 0], d: D.d, L: D.L });
+  }
+  S.labels = [
+    { type: 'max', at: s => [s.c[0] - 18, 0, s.c[2]], first: true }, { type: 'sph', at: s => [s.c[0] - 14, 0, s.c[2]], first: true },
+    { type: 'fro', at: s => [s.c[0] - 13, 0, s.c[2]], first: true }, { type: 'eth', at: s => [s.c[0] - 12, 0, s.c[2] - 10], first: true, suffix: '（片側 9 室のうち 3 室）' },
+    { text: '鼻腔（まっすぐな管にしたもの）', p: [4, 0, -88] },
+  ];
+  return S;
+}
+const VIEWS = [
+  { key: 'all', title: '全体', build: sceneAll },
+  { key: 'zoom', title: '上顎洞の拡大', build: sceneZoom },
+  { key: 'cmp', title: '並べて比べる', build: sceneCompare },
+];
+const built = {};
+let cur = 0;
+
+// ===================== camera & input =====================
+const cam = { yaw: 1, pitch: 0.2, dist: 1 };
+const stage = $('stage'), ptr = new Map(); let pinch0 = 0, dist0 = 1, lastTap = 0, down = null;
+function resetCam() { const S = built[VIEWS[cur].key]; if (S) { cam.yaw = S.yaw; cam.pitch = S.pitch; cam.dist = 1; } }
+stage.addEventListener('pointerdown', e => {
+  if (e.target.closest('button')) return;
+  stage.setPointerCapture(e.pointerId); ptr.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptr.size === 2) { const [a, b] = [...ptr.values()]; pinch0 = hyp(a.x - b.x, a.y - b.y) || 1; dist0 = cam.dist; down = null; }
+  else down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 };
+});
+stage.addEventListener('pointermove', e => {
+  const p = ptr.get(e.pointerId); if (!p) return;
+  if (ptr.size === 1) {
+    cam.yaw -= (e.clientX - p.x) * 0.008; cam.pitch = Math.max(-1.45, Math.min(1.45, cam.pitch + (e.clientY - p.y) * 0.008));
+    if (down) down.moved += hyp(e.clientX - p.x, e.clientY - p.y);
+  }
+  p.x = e.clientX; p.y = e.clientY;
+  if (ptr.size === 2) { const [a, b] = [...ptr.values()]; cam.dist = Math.max(0.3, Math.min(2.5, dist0 * pinch0 / (hyp(a.x - b.x, a.y - b.y) || 1))); }
+});
+stage.addEventListener('pointerup', e => {
+  const had = ptr.delete(e.pointerId);
+  if (!had || !down || down.moved > 8 || performance.now() - down.t > 350) { down = null; return; }
+  const r = stage.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top; down = null;
+  if (VIEWS[cur].key === 'all' && lastM) {   // tap on a maxillary sinus -> close-up
+    const S = built.all;
+    for (const s of S.sinus) if (s.type === 'max') { const q = project(lastM, s.c, cssW, cssH); if (q && hyp(q[0] - x, q[1] - y) < Math.max(36, cssW * 0.11)) { select(1); return; } }
+  }
+  const now = performance.now(); if (now - lastTap < 320) resetCam(); lastTap = now;
+});
+stage.addEventListener('pointercancel', e => { ptr.delete(e.pointerId); down = null; });
+stage.addEventListener('wheel', e => { e.preventDefault(); cam.dist = Math.max(0.3, Math.min(2.5, cam.dist * Math.exp(e.deltaY * 0.001))); }, { passive: false });
+
+// ===================== matrices =====================
+function persp(fy, asp, n, f) { const t = 1 / Math.tan(fy / 2); return [t / asp, 0, 0, 0, 0, t, 0, 0, 0, 0, (f + n) / (n - f), -1, 0, 0, 2 * f * n / (n - f), 0]; }
+function lookAt(e, c) {
+  const z = nrm([e[0] - c[0], e[1] - c[1], e[2] - c[2]]);
+  let x = [-z[1], z[0], 0]; const xl = hyp(x[0], x[1]); x = xl > 1e-6 ? [x[0] / xl, x[1] / xl, 0] : [1, 0, 0];
+  const y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]];
+  return [x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0,
+    -(x[0] * e[0] + x[1] * e[1] + x[2] * e[2]), -(y[0] * e[0] + y[1] * e[1] + y[2] * e[2]), -(z[0] * e[0] + z[1] * e[1] + z[2] * e[2]), 1];
+}
+function mul(a, b) { const o = new Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } return o; }
+function project(M, p, W, H) {
+  const x = M[0] * p[0] + M[4] * p[1] + M[8] * p[2] + M[12], y = M[1] * p[0] + M[5] * p[1] + M[9] * p[2] + M[13], w = M[3] * p[0] + M[7] * p[1] + M[11] * p[2] + M[15];
+  if (w <= 0) return null; return [(x / w * 0.5 + 0.5) * W, (1 - (y / w * 0.5 + 0.5)) * H, w];
+}
+
+// ===================== colors from CSS =====================
+let COL = {};
+function hex(s) { s = s.trim(); if (s[0] !== '#') return [0.5, 0.5, 0.5]; const n = parseInt(s.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; }
+function readColors() {
+  const cs = getComputedStyle(document.documentElement), g = k => hex(cs.getPropertyValue(k));
+  COL = { fresh: g('--s1'), old: g('--s2'), head: g('--glass-head'), eye: g('--glass-eye'), cav: g('--glass-cav'), ost: g('--ost'), glow: g('--glow'), bg: g('--stage') };
+}
+readColors();
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', readColors);
+
+// ===================== state: what is driving the sinuses =====================
+const DEMO_HUM = 10, DEMO_CYCLE = 25;
+const st = { demo: true, demoT: 0, holding: false, mic: false, voiced: false, voicedUntil: 0, fMic: 0, fSlider: 150, hum: false, f: 150, humSec: 0, fRates: 0 };
+function setRates(f) {
+  if (Math.abs(f - st.fRates) < 0.5) return; st.fRates = f;
+  for (const p of PHYS) Object.assign(p, rates(p.V, p.d, p.L, p.gkey, f));
+}
+function resetAll() { for (const p of PHYS) { p.n = 1; p.fa = 1; } st.demoT = 0; st.humSec = 0; }
+const typeAvg = t => { const ps = PHYS.filter(p => p.type === t); return ps.length ? ps.reduce((a, p) => a + exchanged(p), 0) / ps.length : 0; };
+
+// ===================== labels and bars =====================
+const labs = $('labs'); let labEls = [];
+function makeLabels(S) { labs.innerHTML = ''; labEls = S.labels.map(() => { const el = document.createElement('div'); el.className = 'lab'; labs.appendChild(el); return el; }); }
+const BAR_TYPES = ['max', 'sph', 'fro', 'eth'];
+function makeBars() {
+  $('bars').innerHTML = BAR_TYPES.map(t => `<span>${DIM[t].name}${t === 'eth' ? '<small>（18 室の平均）</small>' : '<small>（左右の平均）</small>'}</span><span class="tr"><span class="fl" id="fl_${t}"></span></span><span class="v" id="bv_${t}">0%</span>`).join('');
+}
+function renderBars() {
+  for (const t of BAR_TYPES) { const v = typeAvg(t) * 100; $('fl_' + t).style.width = v.toFixed(1) + '%'; $('bv_' + t).textContent = v.toFixed(v < 10 ? 1 : 0) + '%'; }
+}
+function renderTable() {
+  const f = st.f, rows = Object.keys(DIM).map(k => {
+    const D = DIM[k], r = rates(D.V, D.d, D.L, k === 'eth' ? 'ethA' : k, f);
+    return `<tr><td>${D.name}${k === 'eth' ? '（1 室）' : ''}</td><td>${D.V}</td><td>${D.d}</td><td>${D.L}</td><td>${r.L0mm.toFixed(2)}</td><td>${r.x.toFixed(2)}</td><td>${(exch10(0, r.kD) * 100).toFixed(0)}%</td><td>${(exch10(r.kH, r.kD) * 100).toFixed(0)}%</td></tr>`;
+  }).join('');
+  $('tbl').innerHTML = `<caption class="note" style="text-align:left;caption-side:top;padding-bottom:4px">いまの音の高さ：${Math.round(f)} Hz</caption><thead><tr><th rowspan="2">洞</th><th rowspan="2">容積 mL</th><th rowspan="2">自然口の太さ mm</th><th rowspan="2">長さ mm</th><th rowspan="2">空気柱 mm</th><th rowspan="2">空気柱 ÷ 長さ</th><th colspan="2">10 秒で入れ替わる割合</th></tr><tr><th>拡散だけ</th><th>ハミング</th></tr></thead><tbody>${rows}</tbody>`;
+}
+
+// ===================== draw =====================
+let W = 0, H = 0, cssW = 0, cssH = 0, lastM = null, pts = new Float32Array(0), pulsePh = 0;
+const FOV = 32 * Math.PI / 180;
+function resize() {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cssW = r.width; cssH = r.height;
+  const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
+  if (w !== W || h !== H) { W = cv.width = w; H = cv.height = h; }
+}
+function draw(S, t) {
+  resize();
+  gl.viewport(0, 0, W, H); gl.clearColor(COL.bg[0], COL.bg[1], COL.bg[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  const asp = W / H, tf = Math.tan(FOV / 2);
+  const D = Math.max(S.fit[1] / 2 / tf, S.fit[0] / 2 / (tf * asp)) * 1.12 * cam.dist;
+  const tg = S.target, cp = Math.cos(cam.pitch);
+  const eye = [tg[0] + D * cp * Math.cos(cam.yaw), tg[1] + D * cp * Math.sin(cam.yaw), tg[2] + D * Math.sin(cam.pitch)];
+  const M = mul(persp(FOV, asp, Math.max(5, D - 200), D + 260), lookAt(eye, tg)); lastM = M;
+  const vdir = nrm([eye[0] - tg[0], eye[1] - tg[1], eye[2] - tg[2]]), side = nrm([-vdir[1], vdir[0], 0]);
+  const light = nrm([vdir[0] + 0.35 * side[0], vdir[1] + 0.35 * side[1], vdir[2] + 0.6]);
+  const U = prog.u; gl.useProgram(prog.p);
+  gl.uniformMatrix4fv(U.uMVP, false, M); gl.uniform3fv(U.uEye, eye); gl.uniform3fv(U.uLight, light);
+  gl.enable(gl.DEPTH_TEST); gl.depthMask(true); gl.disable(gl.BLEND);
+  gl.uniform1i(U.uMode, 1); gl.uniform3fv(U.uCol, COL.fresh); gl.uniform3fv(U.uCol2, COL.old);
+  for (const s of S.sinus) {
+    if (s.field) updateField(s);
+    if (s.see) continue;
+    gl.uniform1i(U.uMode, s.field ? 3 : 1);
+    gl.uniform2f(U.uFill, 1 - s.ph.n, 1 - s.ph.fa); gl.bindVertexArray(s.mesh.vao); gl.drawElements(gl.TRIANGLES, s.mesh.n, gl.UNSIGNED_INT, 0);
+  }
+  gl.uniform1i(U.uMode, 0);
+  for (const o of S.solid) { gl.uniform3fv(U.uCol, COL[o.key]); gl.bindVertexArray(o.mesh.vao); gl.drawElements(gl.TRIANGLES, o.mesh.n, gl.UNSIGNED_INT, 0); }
+  if (S.volume) drawVolume(M, eye, S.volume.ph);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+  const gls = S.glass.concat(S.sinus.filter(s => s.see).map(s => ({ mesh: s.mesh, sinus: true, layer: 1, a: 0.16, rim: 0.5 }))).sort((a, b) => a.layer - b.layer);
+  for (const pass of [0, 1]) {
+    gl.uniform1i(U.uPass, pass);
+    for (const g of (pass === 0 ? gls : gls.slice().reverse())) {
+      if (g.sinus) { gl.uniform1i(U.uMode, 4); gl.uniform3fv(U.uCol, COL.fresh); gl.uniform3fv(U.uCol2, COL.old); }
+      else { gl.uniform1i(U.uMode, 2); gl.uniform3fv(U.uCol, COL[g.key]); }
+      gl.uniform1f(U.uA, g.a); gl.uniform1f(U.uRim, g.rim);
+      gl.bindVertexArray(g.mesh.vao); gl.drawElements(gl.TRIANGLES, g.mesh.n, gl.UNSIGNED_INT, 0);
+    }
+  }
+  // glowing ostia; in the close-up and comparison views also the oscillating air column
+  const hum = st.hum, pulse = hum ? 0.5 + 0.5 * Math.sin(pulsePh) : 0, list = [];
+  for (const s of S.sinus) {
+    const x = s.ph.x, str = Math.min(1, x / 2), op = s.op;
+    list.push(op.mid[0], op.mid[1], op.mid[2], (s.ph.d / 2 + (S.column ? 0.4 : 1.3)) * (1 + 0.7 * pulse * str), COL.glow[0], COL.glow[1], COL.glow[2], (hum ? 0.35 + 0.4 * str : 0.22) * (S.column ? 0.5 : 1));
+    if (S.column) {
+      const disp = hum ? 0.5 * x * op.len * Math.sin(pulsePh) : 0;
+      for (let i = 0; i < 7; i++) {
+        const p = addv(op.mid, op.dir, (i / 6 - 0.5) * op.len + disp);
+        list.push(p[0], p[1], p[2], Math.max(0.35, s.ph.d * 0.22), COL.fresh[0], COL.fresh[1], COL.fresh[2], 0.95);
+      }
+    }
+  }
+  if (pts.length < list.length) pts = new Float32Array(list.length * 2);
+  pts.set(list);
+  gl.useProgram(pprog.p); gl.uniformMatrix4fv(pprog.u.uMVP, false, M); gl.uniform1f(pprog.u.uScale, H / 2 / tf);
+  gl.disable(gl.DEPTH_TEST); gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+  gl.bindVertexArray(pvao); gl.bindBuffer(gl.ARRAY_BUFFER, pbuf); gl.bufferData(gl.ARRAY_BUFFER, pts.subarray(0, list.length), gl.DYNAMIC_DRAW);
+  gl.drawArrays(gl.POINTS, 0, list.length / 8);
+  gl.bindVertexArray(null);
+  S.labels.forEach((L, i) => {
+    const el = labEls[i]; let p = L.p, text = L.text;
+    if (L.type) {
+      const ss = S.sinus.filter(s => s.type === L.type); if (!ss.length) { el.style.display = 'none'; return; }
+      let best = ss[0];
+      if (!L.first) { let bw = Infinity; for (const s of ss) { const q = project(M, s.c, cssW, cssH); if (q && q[2] < bw) { bw = q[2]; best = s; } } }
+      p = L.at(best);
+      text = `${DIM[L.type].name}${L.suffix || ''} <b>${(typeAvg(L.type) * 100).toFixed(0)}%</b>`;
+    } else if (L.ost) p = S.sinus[0].op.mid;
+    const q = project(M, p, cssW, cssH);
+    if (!q) { el.style.display = 'none'; return; }
+    el.style.display = ''; if (el._t !== text) { el.innerHTML = text; el._t = text; }
+    el.style.transform = `translate(${(q[0] - el.offsetWidth / 2).toFixed(1)}px, ${(q[1] - 10 + (L.dy || 0)).toFixed(1)}px)`;
+  });
+}
+
+// ===================== UI =====================
+function renderViews() {
+  const T = $('views'); T.innerHTML = '';
+  VIEWS.forEach((v, i) => { const b = document.createElement('button'); b.textContent = v.title; b.className = i === cur ? 'on' : ''; b.onclick = () => select(i); T.appendChild(b); });
+}
+function select(i) {
+  cur = i; renderViews();
+  const key = VIEWS[i].key;
+  $('bBack').style.display = key === 'zoom' ? 'block' : 'none';
+  $('hint').style.display = key === 'all' ? '' : 'none';
+  const go = () => { makeLabels(built[key]); resetCam(); };
+  if (built[key]) return go();
+  $('busy').classList.add('on');
+  setTimeout(() => {
+    const t0 = performance.now();
+    if (!built.all) built.all = sceneAll();
+    if (!built[key]) built[key] = VIEWS[i].build();
+    built[key].ms = performance.now() - t0;
+    st.fRates = 0; setRates(st.f);
+    $('busy').classList.remove('on'); go();
+  }, 30);
+}
+$('bBack').onclick = () => select(0);
+function setDemo(on) {
+  st.demo = on; $('bDemo').classList.toggle('on', on);
+  if (on) { st.demoT = 0; resetAll(); $('pstat').textContent = '自動デモ中：10 秒ハミングして 15 秒休む、をくり返しています。'; }
+  else if (!st.mic) $('pstat').textContent = '「押している間ハミング」を押すか、マイクを使ってください。';
+}
+$('bDemo').onclick = () => setDemo(!st.demo);
+$('bReset').onclick = () => resetAll();
+const hb = $('bHold');
+const holdOn = e => { e.preventDefault(); if (st.demo) setDemo(false); st.holding = true; hb.classList.add('on'); };
+const holdOff = () => { st.holding = false; hb.classList.remove('on'); };
+hb.addEventListener('pointerdown', holdOn); hb.addEventListener('pointerup', holdOff); hb.addEventListener('pointerleave', holdOff); hb.addEventListener('pointercancel', holdOff);
+hb.addEventListener('contextmenu', e => e.preventDefault());
+$('fHz').oninput = e => { st.fSlider = +e.target.value; $('oHz').textContent = `${st.fSlider} Hz`; };
+
+// ---------------- microphone + pitch (YIN), as in hum-map.html ----------------
+let ac = null, an = null, abuf = null;
+$('bMic').onclick = async () => {
+  if (st.mic) { stopMic(); return; }
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    $('pstat').innerHTML = '<span class="err">マイクを使えませんでした</span>';
+    $('micNote').textContent = 'このページは安全な接続（https://）で開かれていないため、ブラウザがマイクを許可しません。https で配信される場所に置いて開いてください。それまでは「押している間ハミング」で試せます。';
+    return;
+  }
+  // iOS Safari: the AudioContext must be created and resumed synchronously inside the tap
+  ac = new (window.AudioContext || window.webkitAudioContext)();
+  const resumed = ac.resume();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    await resumed; if (ac.state !== 'running') await ac.resume();
+    const src = ac.createMediaStreamSource(stream);
+    an = ac.createAnalyser(); an.fftSize = 2048; src.connect(an); abuf = new Float32Array(an.fftSize);
+    st.mic = true; window.__stream = stream; if (st.demo) setDemo(false);
+    $('bMic').textContent = 'マイクを止める';
+    $('pstat').textContent = 'ハミングしてください（口を閉じて「んー」）';
+    $('micNote').textContent = 'マイクの音は端末の中だけで解析し、どこにも送信・保存しません。';
+  } catch (e) {
+    try { ac?.close(); } catch (e2) {}
+    $('pstat').innerHTML = `<span class="err">マイクを使えませんでした（${e && e.name ? e.name : 'エラー'}）</span>`;
+    $('micNote').textContent = (e && e.name === 'NotAllowedError')
+      ? 'マイクの使用が拒否されています。iPhone なら「設定 → アプリ → Safari → マイク」を「確認」か「許可」にし、アドレスバー左の「ぁあ」→「Webサイトの設定」→「マイク」も確かめてから、ページを再読み込みしてください。LINE や X などアプリの中のブラウザではなく、Safari で直接開いてください。'
+      : 'この表示環境ではマイクが使えません（Claude のビューアの中など）。https で配信される場所に置いて開くと使えます。それまでは「押している間ハミング」で試せます。';
+  }
+};
+function stopMic() {
+  st.mic = false; st.voiced = false;
+  try { window.__stream?.getTracks().forEach(t => t.stop()); ac?.close(); } catch (e) {}
+  $('bMic').textContent = 'マイクを使う'; $('pstat').textContent = 'マイクは止まっています。'; $('level').style.width = '0';
+}
+function yin(x, sr) {
+  const n = x.length, W = n >> 1;
+  const tmin = Math.floor(sr / 450), tmax = Math.min(W - 1, Math.ceil(sr / 70));
+  const d = new Float32Array(tmax + 2);
+  for (let t = 1; t <= tmax + 1; t++) { let s = 0; for (let i = 0; i < W; i++) { const v = x[i] - x[i + t]; s += v * v; } d[t] = s; }
+  let run = 0; const dn = new Float32Array(tmax + 2); dn[0] = 1;
+  for (let t = 1; t <= tmax + 1; t++) { run += d[t]; dn[t] = d[t] * t / (run || 1); }
+  let tau = -1;
+  for (let t = tmin; t <= tmax; t++) { if (dn[t] < 0.15) { while (t + 1 <= tmax && dn[t + 1] < dn[t]) t++; tau = t; break; } }
+  if (tau < 0) return { f: 0, conf: 0 };
+  const a = dn[tau - 1], b = dn[tau], c = dn[tau + 1];
+  const shift = (a - c) / (2 * (a - 2 * b + c) || 1);
+  return { f: sr / (tau + (isFinite(shift) ? shift : 0)), conf: 1 - b };
+}
+function readMic(now) {
+  an.getFloatTimeDomainData(abuf);
+  let rms = 0; for (let i = 0; i < abuf.length; i++) rms += abuf[i] * abuf[i]; rms = Math.sqrt(rms / abuf.length);
+  $('level').style.width = Math.min(100, rms * 600) + '%';
+  if (rms > 0.01) {
+    const r = yin(abuf, ac.sampleRate);
+    if (r.f > 70 && r.f < 450 && r.conf > 0.8) {
+      st.fMic = st.fMic ? st.fMic * 0.7 + r.f * 0.3 : r.f;
+      st.voicedUntil = now + 200;   // bridge short dropouts
+      $('pstat').textContent = 'ハミングを検出中';
+    } else if (now > st.voicedUntil) { $('pstat').textContent = '声の高さを判定できません（口を閉じて「んー」と一定の高さで）'; st.fMic = 0; }
+  } else if (now > st.voicedUntil) { $('pstat').textContent = 'ハミングしてください（口を閉じて「んー」）'; st.fMic = 0; }
+  st.voiced = now < st.voicedUntil && st.fMic > 0;
+}
+
+// ===================== main loop =====================
+let last = performance.now(), tableT = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const S = built[VIEWS[cur].key]; if (!S) return;
+  if (st.mic && an) readMic(now);
+  let hum = false, f = st.fSlider;
+  if (st.demo) { const ph0 = st.demoT % DEMO_CYCLE; st.demoT += dt; const ph = st.demoT % DEMO_CYCLE; if (ph < ph0) resetAll(); hum = ph < DEMO_HUM; }
+  if (st.holding) hum = true;
+  if (st.mic && st.voiced) { hum = true; f = st.fMic; }
+  st.hum = hum; if (hum) { st.f = f; st.humSec += dt; }
+  setRates(st.f);
+  for (const p of PHYS) stepTwo(p, dt, hum);
+  if (hum) pulsePh += 2 * Math.PI * (st.f / 100) * dt;   // 1/100 of the real rate
+  draw(S, now / 1000);
+  $('hud').classList.toggle('hum', hum);
+  $('hzv').textContent = hum ? Math.round(st.f) : '—';
+  $('hst').textContent = hum ? `ハミング中（合計 ${st.humSec.toFixed(1)} 秒）` : (st.demo ? `休み（自動デモ）` : '静か（拡散だけ）');
+  if (now - tableT > 250) { tableT = now; renderBars(); renderTable(); }
+}
+
+(async function boot() {
+  makeBars();
+  await decodeAge();
+  if (!gl) { $('busy').classList.add('on'); $('busy').innerHTML = '<span class="err">この端末のブラウザは WebGL2 に対応していないため、3D を表示できません。</span>'; return; }
+  try {
+    prog = compile(VS, FS); pprog = compile(PVS, PFS);
+    pvao = gl.createVertexArray(); gl.bindVertexArray(pvao); pbuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, pbuf);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 1, gl.FLOAT, false, 32, 12);
+    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 32, 16);
+    gl.bindVertexArray(null);
+    if (AGEDATA) { try { initVolume(); } catch (e) { console.warn('volume view off:', e.message); vprog = null; } }
+  } catch (e) { $('busy').classList.add('on'); $('busy').innerHTML = `<span class="err">描画の準備に失敗しました：${e.message}</span>`; return; }
+  const qi = VIEWS.findIndex(v => v.key === qs.get('v'));
+  select(qi >= 0 ? qi : 0);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

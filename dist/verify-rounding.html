@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>仮説検証：自然口の縁が丸いと換気はどう変わるか</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #e2e0da;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+    --grid: #ebe9e4; --axis: #b9b7b0;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-0: #111110; --surface-1: #1a1a19; --border: #2e2e2b;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+      --grid: #2a2a27; --axis: #55544f;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body.viz-root { background: var(--surface-0); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; line-height: 1.6;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  main { max-width: 1040px; margin: 0 auto; padding: 18px 14px 40px; }
+  h1 { font-size: 21px; margin: 4px 0 2px; }
+  .lede { color: var(--text-secondary); font-size: 14px; margin: 0 0 14px; }
+  h2 { font-size: 15px; margin: 0 0 2px; }
+  .sub { color: var(--text-muted); font-size: 12px; margin: 0 0 8px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  .layout { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  @media (min-width: 860px) { .layout { grid-template-columns: 1fr 1fr; align-items: start; } .layout .card { margin-bottom: 0; } .layout { margin-bottom: 12px; } }
+  .simwrap { position: relative; border-radius: 10px; overflow: hidden; background: #0b0e17; aspect-ratio: 1 / 1; touch-action: none; }
+  #sim { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  .hud { position: absolute; left: 10px; top: 8px; font-size: 11px; color: #e8ecff; text-shadow: 0 1px 2px #000; line-height: 1.5; font-variant-numeric: tabular-nums; pointer-events: none; }
+  .hint { position: absolute; right: 10px; bottom: 8px; font-size: 11px; color: #aab3d6; text-shadow: 0 1px 2px #000; pointer-events: none; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .btns button { font: inherit; font-size: 13px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-0); color: var(--text-primary); cursor: pointer; }
+  .btns button.pri { background: var(--s1); border-color: var(--s1); color: #fff; }
+  .btns button:disabled { opacity: .45; cursor: default; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { font: inherit; font-size: 12px; padding: 4px 10px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+  .seg button.on { background: var(--s1); color: #fff; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-top: 6px; align-items: center; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .sw.dash { width: 14px; height: 0; border-top: 2px dashed var(--text-secondary); border-radius: 0; vertical-align: 3px; }
+  .chart { position: relative; width: 100%; }
+  .chart canvas { display: block; width: 100%; touch-action: pan-y; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-size: 12px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,.12); display: none; z-index: 5; font-variant-numeric: tabular-nums; }
+  .tip .m { color: var(--text-secondary); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-muted); font-weight: 500; font-size: 11px; }
+  td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  .tablewrap { overflow-x: auto; } .tablewrap table { min-width: 480px; } .tablewrap td { white-space: nowrap; }
+  .note { font-size: 12px; color: var(--text-secondary); }
+  .err { color: #d03b3b; font-size: 13px; white-space: pre-wrap; }
+  .status { font-size: 13px; margin-top: 10px; }
+  .runv { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .prog { height: 5px; background: var(--grid); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+  .prog i { display: block; height: 100%; width: 0; background: var(--s1); }
+  .verdict { font-size: 14px; margin: 10px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--surface-0); border: 1px solid var(--border); }
+  .hyp { display: grid; gap: 8px; margin-top: 8px; }
+  @media (min-width: 600px) { .hyp { grid-template-columns: 1fr 1fr; } }
+  .hyp div { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: var(--surface-0); font-size: 13px; }
+  .hyp b { display: block; font-size: 12px; color: var(--text-muted); font-weight: 600; }
+  .skw { display: grid; grid-template-columns: 1fr; gap: 6px; } @media (min-width: 600px) { .skw { grid-template-columns: 1fr 1fr; } }
+  svg.sk { width: 100%; max-width: 420px; display: block; margin: 0 auto; }
+  svg.sk text { font-size: 11px; fill: var(--text-secondary); font-family: inherit; }
+  .src { font-size: 12px; color: var(--text-secondary); padding-left: 18px; margin: 6px 0 0; }
+  .src a { color: var(--s1); }
+</style>
+</head>
+<body class="viz-root">
+<main>
+  <h1>仮説検証：自然口の縁が丸いと換気はどう変わるか</h1>
+  <p class="lede">これまでのモデルは、自然口を「骨にあいた縁の鋭い穴」として扱ってきました。実際の自然口は粘膜に覆われ、縁が丸くなっています。縁の丸みを変えて3D流体計算で混合率を測り、実験と食い違っていた「自然口が大きいほどハミングでNOが増える」が説明できるかを確かめます。</p>
+
+  <section class="card">
+    <h2>2つの見込みが逆向きに働く</h2>
+    <div class="skw">
+      <svg class="sk" viewBox="0 0 300 160" role="img" aria-label="縁の鋭い自然口の断面図">
+        <rect x="5" y="0" width="120" height="130" fill="var(--grid)"/><rect x="175" y="0" width="120" height="130" fill="var(--grid)"/>
+        <rect x="125" y="0" width="50" height="45" fill="var(--axis)"/><rect x="125" y="85" width="50" height="45" fill="var(--axis)"/>
+        <text x="65" y="70" text-anchor="middle">上顎洞</text><text x="235" y="70" text-anchor="middle">鼻腔</text>
+        <text x="150" y="152" text-anchor="middle">縁の鋭い穴（これまで）</text>
+      </svg>
+      <svg class="sk" viewBox="0 0 300 160" role="img" aria-label="縁の丸い自然口の断面図">
+        <rect x="5" y="0" width="120" height="130" fill="var(--grid)"/><rect x="175" y="0" width="120" height="130" fill="var(--grid)"/>
+        <path d="M125 0 H175 V20 A25 25 0 0 1 150 45 A25 25 0 0 1 125 20 Z" fill="var(--axis)"/>
+        <path d="M125 130 H175 V110 A25 25 0 0 0 150 85 A25 25 0 0 0 125 110 Z" fill="var(--axis)"/>
+        <text x="65" y="70" text-anchor="middle">上顎洞</text><text x="235" y="70" text-anchor="middle">鼻腔</text>
+        <text x="150" y="152" text-anchor="middle">縁の丸い穴（壁の厚み・最も細い所は同じ）</text>
+      </svg>
+    </div>
+    <div class="hyp">
+      <div><b>見込みA：混合率は下がる</b>縁が丸いと流れがはがれにくく、押し出しと吸い込みが対称に近づきます。往復するだけで入れ替わりにくくなります。</div>
+      <div><b>見込みB：混合率は上がる</b>丸みの分だけ、細いまっすぐな部分（往復するだけの「死腔」）が短くなります。同じ空気柱でも穴を抜けやすくなります。</div>
+    </div>
+  </section>
+
+  <div class="layout">
+    <section class="card">
+      <div class="simwrap"><canvas id="sim"></canvas><div class="hud" id="hud">準備中…</div><div class="hint" id="hint">ドラッグで回転・ピンチ／ホイールで拡大</div></div>
+      <div style="margin-top:8px"><span class="seg" id="viewSeg"></span></div>
+      <div class="legend" id="viewLegend"></div>
+      <div class="err" id="err"></div>
+    </section>
+    <section class="card">
+      <h2>実行</h2>
+      <p class="sub">PCのChrome / Edgeで、検証1が5〜10分、検証2が5〜10分ほどが目安です</p>
+      <div class="btns"><button class="pri" id="bE1">検証1：理想形状で丸みを変える（9件）</button><button class="pri" id="bE2">検証2：実際の上顎洞で自然口の大きさ×丸み（6件）</button><button id="bC">対照：往復させない（3件）</button><button id="bStop">停止</button></div>
+      <div class="status" id="status">準備中…</div>
+      <div class="runv" id="runv"></div>
+      <div class="prog"><i id="prog"></i></div>
+      <p class="note" style="margin-top:10px">左の画面は自然口を通る断面で、縁の形と、出入りする空気（NOの濃さ）が見えます。丸みは格子で表すため階段状になります。</p>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>検証1：同じ空気柱で、縁の丸みだけを変える</h2>
+    <p class="sub">球形の空洞＋円筒の自然口（直径 d、長さ 0.8d ＝ P001と同じ比）。丸み半径 0・0.2d・0.4d（0.4dで全体が丸い喉になる）× 空気柱 L₀/L＝1・2・4</p>
+    <div class="chart" id="cE1"></div>
+    <div class="legend"><span><span class="sw" style="background:var(--s1)"></span>丸みなし（鋭い縁）</span><span><span class="sw" style="background:var(--s2)"></span>丸み 0.2d</span><span><span class="sw" style="background:var(--s3)"></span>丸み 0.4d（全体が丸い）</span><span><span class="sw dash"></span>これまでの式（鋭い縁で当てはめ）</span></div>
+    <div class="tablewrap"><table id="t1" style="margin-top:8px"></table></div>
+    <p class="verdict" id="v1">検証1を実行すると、ここに判定が出ます。</p>
+  </section>
+
+  <section class="card">
+    <h2>対照：空気を往復させないと、洞のNOはどれだけ減るか</h2>
+    <p class="sub">検証1の鋭い縁と同じ形・同じ周期で、往復の駆動だけを止めます。それでも減るぶん（拡散、鼻腔を流れる息、計算の誤差）は、測った混合率の「底上げ」になります。往復させたときに入る空気の量で割り、混合率と同じ単位で示します。</p>
+    <div class="tablewrap"><table id="tC" style="margin-top:8px"></table></div>
+    <p class="verdict" id="vC">対照を実行すると、ここに判定が出ます。</p>
+  </section>
+
+  <section class="card">
+    <h2>検証2：実際の上顎洞で、自然口の大きさと丸みを組み合わせる</h2>
+    <p class="sub">P001の上顎洞、150 Hz・100 Pa。自然口の直径 2.0・2.8・4.0 mm × 縁（鋭い・丸み1.0 mm ＝ 壁の厚み2.1 mmのほぼ全体が丸い）。混合率を測り、NOモデルで「ハミングで鼻のNOが何倍になるか」に換算</p>
+    <div class="chart" id="cE2"></div>
+    <div class="legend"><span><span class="sw" style="background:var(--s1)"></span>鋭い縁</span><span><span class="sw" style="background:var(--s2)"></span>丸い縁（1.0 mm）</span></div>
+    <div class="tablewrap"><table id="t2" style="margin-top:8px"></table></div>
+    <p class="verdict" id="v2">検証2を実行すると、ここに判定が出ます。実験では、自然口が大きい人ほどハミングでNOが増えると報告されています。</p>
+  </section>
+
+  <section class="card">
+    <h2>方法と限界</h2>
+    <div class="note">
+      <p>丸みは、穴の両端を四分円で広げて表します。最も細い部分の直径と壁の厚みは変えません。自然口の中ほどで空気を往復させ、目標の空気柱になるまで振幅を周期ごとに合わせます。合った周期の上顎洞のNOの減り方から、混合率（入った空気のうち実際に入れ替わった割合）を求めます。</p>
+      <p>検証2では、出入りする空気の量を共鳴モデルで決めています。量はほぼ洞の空気の縮みで決まるので、縁の形にはあまり左右されないとみなしています。0.4 mmの格子では丸み1.0 mmを2.5格子で表すため、形は粗い近似です。NOへの換算には、統合版と同じNOモデルを使います（上顎洞以外の副鼻腔は式の値）。</p>
+    </div>
+    <ol class="src">
+      <li>形状：<a href="https://doi.org/10.5281/zenodo.13893419">NasalSeg</a>（Zhang Y. et al., Scientific Data 2024、<a href="https://creativecommons.org/licenses/by/4.0/deed.ja">CC BY 4.0</a>）症例P001のラベル2・4を改変して使用（再標本化・切り出し・平滑化・自然口を円筒で掘り直し）</li>
+      <li>自然口が大きいほどハミングでNOが増える：<a href="https://pubmed.ncbi.nlm.nih.gov/12952268/">Maniscalco et al. (2003)</a> ほかの測定・模型研究</li>
+    </ol>
+    <p class="note">これは、換気の物理を調べるための計算です。診断や治療の効果を示すものではありません。</p>
+  </section>
+</main>
+<div class="tip" id="tip"></div>
+<script>
+const P001_INFO = {"dims": [111, 107, 140], "dx": 0.4, "A": [44.677734375, 52.001953125, 92.25000000000003], "B": [39.55078125, 52.001953125, 92.25000000000003], "sinus_ml": 13.999424000000003, "nasal_ml": 8.270208000000002, "inlet_cells": 1568, "outlet_cells": 713, "source": "NasalSeg P001 (Zhang et al., Sci Data 2024, CC BY 4.0): labels 2 (maxillary sinus) and 4 (nasal cavity), resampled, cropped and with a carved ostium"};
+const GEOM_B64 = "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";
+let GEOM_INFO = P001_INFO;
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
+const showErr = m => { $('err').textContent += m + '\n'; };
+const NONE = 0xffffffff;
+// ---------------- D3Q19 ----------------
+const EX = [0, 1, -1, 0, 0, 0, 0, 1, -1, 1, -1, 0, 0, 1, -1, 1, -1, 0, 0];
+const EY = [0, 0, 0, 1, -1, 0, 0, 1, -1, 0, 0, 1, -1, -1, 1, 0, 0, 1, -1];
+const EZ = [0, 0, 0, 0, 0, 1, -1, 0, 0, 1, -1, 1, -1, 0, 0, -1, 1, -1, 1];
+const WQ = [1 / 3, 1 / 18, 1 / 18, 1 / 18, 1 / 18, 1 / 18, 1 / 18, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36, 1 / 36];
+const UPEAK = 0.08;
+const CYCLES = Math.max(4, parseInt(qs.get('cycles')) || 18);
+const MEAS_FROM = 4;
+const SCALAR_EVERY = 4;
+const FIX = 4096;
+
+
+const G = { nx: 0, ny: 0, nz: 0, dx: 0.4, base: null };
+const F = { nf: 0, dense2f: null, f2dense: null, type: null, nb: null, slab: null, sinusCells: 0, tubeCells: 0, axis: [0, 0, 0], tubeLen: 0, dCells: 0, area: 0, c0: null };
+const P = { Re: +qs.get('re') || 300, chRatio: 0.12 };   // re: Reynolds number of the peak ostium flow (roadmap 2)
+let VIEW = 2;
+// ---------------- WGSL ----------------
+const HDR = /* wgsl */`
+struct U {
+  nf: u32, nx: u32, ny: u32, nz: u32,
+  tau0: f32, cs: f32, uin: f32, invSin: f32,
+  omega: f32, dc: f32, dtc: f32, sgn: f32,
+  slabN: u32, T: u32, F0: f32, kp: f32,
+  ki: f32, ax: f32, ay: f32, az: f32,
+};
+@group(0) @binding(0) var<uniform> u: U;
+const NONE: u32 = 0xffffffffu;
+`;
+const COLLIDE = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> fin: array<f32>;
+@group(0) @binding(2) var<storage, read_write> fout: array<f32>;
+@group(0) @binding(3) var<storage, read> nb: array<u32>;
+@group(0) @binding(4) var<storage, read> ftype: array<u32>;
+@group(0) @binding(5) var<storage, read_write> vel: array<vec4f>;
+@group(0) @binding(6) var<storage, read> ctr: array<u32>;
+@group(0) @binding(7) var<storage, read> stats: array<f32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let k = gid.x;
+  if (k >= u.nf) { return; }
+  var EX = array<f32, 19>(0, 1, -1, 0, 0, 0, 0, 1, -1, 1, -1, 0, 0, 1, -1, 1, -1, 0, 0);
+  var EY = array<f32, 19>(0, 0, 0, 1, -1, 0, 0, 1, -1, 0, 0, 1, -1, -1, 1, 0, 0, 1, -1);
+  var EZ = array<f32, 19>(0, 0, 0, 0, 0, 1, -1, 0, 0, 1, -1, 1, -1, 0, 0, -1, 1, -1, 1);
+  var W = array<f32, 19>(1.0/3.0, 1.0/18.0, 1.0/18.0, 1.0/18.0, 1.0/18.0, 1.0/18.0, 1.0/18.0,
+    1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0);
+  var OPP = array<u32, 19>(0u, 2u, 1u, 4u, 3u, 6u, 5u, 8u, 7u, 10u, 9u, 12u, 11u, 14u, 13u, 16u, 15u, 18u, 17u);
+  let t = ftype[k];
+  var f: array<f32, 19>;
+  var rho = 0.0;
+  var m = vec3f(0.0);
+  for (var i = 0u; i < 19u; i++) {
+    let j = nb[i * u.nf + k];
+    var v: f32;
+    if (j == NONE) { v = fin[OPP[i] * u.nf + k]; } else { v = fin[i * u.nf + j]; }
+    f[i] = v;
+    rho += v;
+    m += v * vec3f(EX[i], EY[i], EZ[i]);
+  }
+  rho = max(rho, 0.2);
+  var uu = m / rho;
+  if (t == 3u) { rho = 1.0; uu = vec3f(0.0, -u.uin, 0.0); }
+  if (t == 4u) { rho = 1.0; }
+  let usq = dot(uu, uu);
+  var fe: array<f32, 19>;
+  var pxx = 0.0; var pyy = 0.0; var pzz = 0.0; var pxy = 0.0; var pxz = 0.0; var pyz = 0.0;
+  for (var i = 0u; i < 19u; i++) {
+    let e = vec3f(EX[i], EY[i], EZ[i]);
+    let eu = dot(e, uu);
+    fe[i] = W[i] * rho * (1.0 + 3.0 * eu + 4.5 * eu * eu - 1.5 * usq);
+    let g = f[i] - fe[i];
+    pxx += e.x * e.x * g; pyy += e.y * e.y * g; pzz += e.z * e.z * g;
+    pxy += e.x * e.y * g; pxz += e.x * e.z * g; pyz += e.y * e.z * g;
+  }
+  let pim = sqrt(pxx * pxx + pyy * pyy + pzz * pzz + 2.0 * (pxy * pxy + pxz * pxz + pyz * pyz));
+  let tau = 0.5 * (u.tau0 + sqrt(u.tau0 * u.tau0 + 18.0 * 1.41421356 * u.cs * u.cs * pim / rho));
+  var keep = 1.0;
+  if (t == 2u) { keep = 1.0 - stats[2] * u.invSin / rho; }
+  var fs = fe;
+  if (t == 5u) {
+    let tt = f32(ctr[0]);
+    let ramp = min(1.0, tt / f32(u.T));
+    let fmag = u.F0 * ramp * cos(u.omega * tt) + stats[5];
+    let u2 = uu + tau * fmag * vec3f(u.ax, u.ay, u.az);
+    let usq2 = dot(u2, u2);
+    for (var i = 0u; i < 19u; i++) {
+      let eu = dot(vec3f(EX[i], EY[i], EZ[i]), u2);
+      fs[i] = W[i] * rho * (1.0 + 3.0 * eu + 4.5 * eu * eu - 1.5 * usq2);
+    }
+  }
+  for (var i = 0u; i < 19u; i++) {
+    var o: f32;
+    if (t == 3u || t == 4u) { o = fe[i]; } else { o = f[i] - (f[i] - fs[i]) / tau; }
+    fout[i * u.nf + k] = o * keep;
+  }
+  vel[k] = vec4f(uu, rho);
+}
+`;
+const FLUX = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> vel: array<vec4f>;
+@group(0) @binding(2) var<storage, read_write> ctr: array<u32>;
+@group(0) @binding(3) var<storage, read_write> stats: array<f32>;
+@group(0) @binding(4) var<storage, read_write> ring: array<f32>;
+@group(0) @binding(5) var<storage, read> slab: array<u32>;
+var<workgroup> acc: array<f32, 64>;
+@compute @workgroup_size(64)
+fn main(@builtin(local_invocation_index) li: u32) {
+  let a = vec3f(u.ax, u.ay, u.az);
+  var s = 0.0;
+  var i = li;
+  loop {
+    if (i >= u.slabN) { break; }
+    s += dot(vel[slab[i]].xyz, a);
+    i += 64u;
+  }
+  acc[li] = s;
+  workgroupBarrier();
+  for (var st = 32u; st > 0u; st = st >> 1u) {
+    if (li < st) { acc[li] += acc[li + st]; }
+    workgroupBarrier();
+  }
+  if (li == 0u) {
+    let q = acc[0];
+    stats[0] += max(q, 0.0);
+    stats[1] += max(-q, 0.0);
+    stats[2] = q;
+    let slot = ctr[0] % u.T;
+    let sum = stats[3] + q - ring[slot];
+    ring[slot] = q;
+    stats[3] = sum;
+    let qbar = sum / f32(u.T);
+    stats[4] += qbar;
+    stats[5] = -u.kp * qbar - u.ki * stats[4];
+    ctr[0] += 1u;
+  }
+}
+`;
+const SAMPLER = (buf) => /* wgsl */`
+fn cellPos(d: u32) -> vec3f {
+  return vec3f(f32(d % u.nx), f32((d / u.nx) % u.ny), f32(d / (u.nx * u.ny)));
+}
+fn samp(p: vec3f, own: u32) -> vec3f {
+  let pc = clamp(p, vec3f(0.0), vec3f(f32(u.nx) - 1.001, f32(u.ny) - 1.001, f32(u.nz) - 1.001));
+  let b = floor(pc);
+  let t = pc - b;
+  let x0 = u32(b.x); let y0 = u32(b.y); let z0 = u32(b.z);
+  var sw = 0.0; var sv = 0.0; var lo = 1e9; var hi = -1e9;
+  for (var c = 0u; c < 8u; c++) {
+    let dx = c & 1u; let dy = (c >> 1u) & 1u; let dz = (c >> 2u) & 1u;
+    let d = ((z0 + dz) * u.ny + (y0 + dy)) * u.nx + (x0 + dx);
+    let j = dmap[d];
+    if (j == NONE) { continue; }
+    let wx = select(1.0 - t.x, t.x, dx == 1u);
+    let wy = select(1.0 - t.y, t.y, dy == 1u);
+    let wz = select(1.0 - t.z, t.z, dz == 1u);
+    let w = wx * wy * wz;
+    let v = ${buf}[j];
+    sw += w; sv += w * v;
+    lo = min(lo, v); hi = max(hi, v);
+  }
+  if (sw < 1e-6) { let v = ${buf}[own]; return vec3f(v, v, v); }
+  return vec3f(sv / sw, lo, hi);
+}
+`;
+const ADV1 = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> cin: array<f32>;
+@group(0) @binding(2) var<storage, read_write> cout: array<f32>;
+@group(0) @binding(3) var<storage, read> vel: array<vec4f>;
+@group(0) @binding(4) var<storage, read> dmap: array<u32>;
+@group(0) @binding(5) var<storage, read> fpos: array<u32>;
+` + SAMPLER('cin') + /* wgsl */`
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let k = gid.x;
+  if (k >= u.nf) { return; }
+  let p = cellPos(fpos[k]);
+  cout[k] = samp(p - vel[k].xyz * u.dtc * u.sgn, k).x;
+}
+`;
+const ADV3 = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> c0: array<f32>;
+@group(0) @binding(2) var<storage, read> c1: array<f32>;
+@group(0) @binding(3) var<storage, read_write> c2: array<f32>;
+@group(0) @binding(4) var<storage, read> vel: array<vec4f>;
+@group(0) @binding(5) var<storage, read> dmap: array<u32>;
+@group(0) @binding(6) var<storage, read> fpos: array<u32>;
+@group(0) @binding(7) var<storage, read> ftype: array<u32>;
+@group(0) @binding(8) var<storage, read> nb: array<u32>;
+` + SAMPLER('c0') + /* wgsl */`
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let k = gid.x;
+  if (k >= u.nf) { return; }
+  if (ftype[k] == 3u) { c2[k] = 0.0; return; }
+  let p = cellPos(fpos[k]);
+  let s = samp(p - vel[k].xyz * u.dtc, k);
+  var cn = c1[k] + 0.5 * (c0[k] - c2[k]);
+  cn = clamp(cn, s.y, s.z);
+  let own = c0[k];
+  var lap = -6.0 * own;
+  for (var q = 1u; q <= 6u; q++) {
+    let j = nb[q * u.nf + k];
+    if (j == NONE) { lap += own; } else { lap += c0[j]; }
+  }
+  cn += u.dc * u.dtc * lap;
+  c2[k] = clamp(cn, 0.0, 1.0);
+}
+`;
+const SUM = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> c: array<f32>;
+@group(0) @binding(2) var<storage, read> ftype: array<u32>;
+@group(0) @binding(3) var<storage, read_write> csum: array<atomic<u32>>;
+var<workgroup> acc: array<u32, 64>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) li: u32) {
+  var v = 0u;
+  if (gid.x < u.nf) {
+    if (ftype[gid.x] == 2u) { v = u32(round(clamp(c[gid.x], 0.0, 1.0) * ${FIX}.0)); }
+  }
+  acc[li] = v;
+  workgroupBarrier();
+  for (var st = 32u; st > 0u; st = st >> 1u) {
+    if (li < st) { acc[li] += acc[li + st]; }
+    workgroupBarrier();
+  }
+  if (li == 0u) { atomicAdd(&csum[0], acc[0]); }
+}
+`;
+const RENDER = /* wgsl */`
+struct RU {
+  eye: vec4f, fwd: vec4f, right: vec4f, up: vec4f,
+  dims: vec4f, p: vec4f, ost: vec4f,
+};
+@group(0) @binding(0) var<uniform> r: RU;
+@group(0) @binding(1) var<storage, read> dmap: array<u32>;
+@group(0) @binding(2) var<storage, read> ftype: array<u32>;
+@group(0) @binding(3) var<storage, read> c: array<f32>;
+const NONE: u32 = 0xffffffffu;
+struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+@vertex
+fn vs(@builtin(vertex_index) vi: u32) -> VO {
+  var P = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  var o: VO;
+  o.pos = vec4f(P[vi], 0.0, 1.0);
+  o.uv = P[vi];
+  return o;
+}
+fn ramp(t: f32) -> vec3f {
+  let s0 = vec3f(0.043, 0.063, 0.125); let s1 = vec3f(0.231, 0.122, 0.369);
+  let s2 = vec3f(0.694, 0.247, 0.392); let s3 = vec3f(0.941, 0.541, 0.294); let s4 = vec3f(0.992, 0.902, 0.627);
+  let x = clamp(t, 0.0, 1.0) * 4.0;
+  if (x < 1.0) { return mix(s0, s1, x); }
+  if (x < 2.0) { return mix(s1, s2, x - 1.0); }
+  if (x < 3.0) { return mix(s2, s3, x - 2.0); }
+  return mix(s3, s4, x - 3.0);
+}
+fn lookup(p: vec3f) -> vec2f {
+  // returns (type, c); type 0 = solid / outside
+  if (any(p < vec3f(0.0)) || any(p >= r.dims.xyz)) { return vec2f(0.0, 0.0); }
+  let q = vec3u(p);
+  let d = (q.z * u32(r.dims.y) + q.y) * u32(r.dims.x) + q.x;
+  let j = dmap[d];
+  if (j == NONE) { return vec2f(0.0, 0.0); }
+  return vec2f(f32(ftype[j]), c[j]);
+}
+fn hash(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(12.9898, 78.233))) * 43758.5453); }
+@fragment
+fn fs(i: VO) -> @location(0) vec4f {
+  let fc = i.pos;
+  let mode = u32(r.p.z);
+  let bg = vec3f(0.043, 0.055, 0.09);
+  if (mode != 0u) {
+    // slice through the ostium
+    let aspect = r.p.x;
+    var w = 0.0; var h = 0.0;
+    if (mode == 1u) { w = r.dims.x; h = r.dims.y; } else { w = r.dims.x; h = r.dims.z; }
+    let s = min(2.0 * aspect / w, 2.0 / h) * 0.96;
+    let px = (i.uv.x * aspect) / s + w * 0.5;
+    let py = (-i.uv.y) / s + h * 0.5;
+    if (px < 0.0 || py < 0.0 || px >= w || py >= h) { return vec4f(bg, 1.0); }
+    var pos = vec3f(px, py, r.ost.z);
+    if (mode == 2u) { pos = vec3f(px, r.ost.y, h - py); }
+    let L = lookup(pos);
+    if (L.x < 0.5) { return vec4f(0.22, 0.23, 0.26, 1.0); }
+    var col = ramp(sqrt(L.y));
+    if (L.x > 4.5) { col = mix(col, vec3f(1.0), 0.25); }
+    return vec4f(col, 1.0);
+  }
+  let aspect = r.p.x; let tf = r.p.y;
+  let dir = normalize(r.fwd.xyz + i.uv.x * aspect * tf * r.right.xyz + i.uv.y * tf * r.up.xyz);
+  let ro = r.eye.xyz;
+  let inv = 1.0 / dir;
+  let t0 = (vec3f(0.0) - ro) * inv; let t1 = (r.dims.xyz - ro) * inv;
+  let tmin = max(max(min(t0.x, t1.x), min(t0.y, t1.y)), min(t0.z, t1.z));
+  let tmax = min(min(max(t0.x, t1.x), max(t0.y, t1.y)), max(t0.z, t1.z));
+  if (tmax <= max(tmin, 0.0)) { return vec4f(bg, 1.0); }
+  let stepL = 0.75;
+  var t = max(tmin, 0.0) + hash(fc.xy) * stepL;
+  var acc = vec3f(0.0); var a = 0.0;
+  var prev = 0.0;
+  for (var s = 0; s < 700; s++) {
+    if (t > tmax || a > 0.97) { break; }
+    let L = lookup(ro + dir * t);
+    let ty = L.x;
+    var cs = vec3f(0.0); var as_ = 0.0;
+    if ((ty < 0.5) != (prev < 0.5)) {
+      let side = max(ty, prev);
+      if (side > 1.5 && side < 2.5) { cs = vec3f(0.95, 0.62, 0.38); as_ = 0.10; }
+      else if (side > 4.5) { cs = vec3f(1.0, 1.0, 1.0); as_ = 0.35; }
+      else { cs = vec3f(0.45, 0.62, 0.95); as_ = 0.055; }
+    } else if (ty > 1.5 && ty < 2.5) {
+      let fresh = 1.0 - L.y;
+      cs = vec3f(0.35, 0.82, 1.0); as_ = clamp(fresh * 0.22, 0.0, 1.0);
+    } else if (ty > 4.5) {
+      cs = vec3f(1.0, 1.0, 1.0); as_ = 0.06;
+    } else if (ty > 0.5) {
+      cs = vec3f(1.0, 0.55, 0.26); as_ = clamp(L.y * 0.16, 0.0, 1.0);
+    }
+    acc += (1.0 - a) * as_ * cs;
+    a += (1.0 - a) * as_;
+    prev = ty;
+    t += stepL;
+  }
+  return vec4f(acc + (1.0 - a) * bg, 1.0);
+}
+`;
+
+
+// ---------------- GPU ----------------
+let device, ctx, format;
+let pCol, pFlux, pAdv1, pAdv3, pSum, pRen;
+let B = {}, bgCol = [], bgFlux, bgAdv1 = [], bgAdv2 = [], bgAdv3 = [], bgSum = [], bgRen = [];
+let uBuf, uBufFwd, rBuf;
+const uData = new ArrayBuffer(80), uF = new Float32Array(uData), uU = new Uint32Array(uData);
+const rData = new Float32Array(28);
+
+
+const R = { running: false, warm: 0, warmDone: false, cur: 0, ck: 0, gstep: 0, stepInCycle: 0, cycle: 0, T: 1000, omega: 0, F0: 0, target: 0, Cprev: 0, results: [], onDone: null, runId: 0, done: false };
+let spf = 30, lastT = 0, sps = 0, spsAcc = 0, spsT = 0;
+// ---------------- camera ----------------
+const cam = { yaw: -2.3, pitch: 0.35, dist: 1.0 };
+const cv = $('sim');
+const pointers = new Map();
+cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); });
+cv.addEventListener('pointermove', e => {
+  if (!pointers.has(e.pointerId)) return;
+  const p = pointers.get(e.pointerId);
+  if (pointers.size === 1 && VIEW === 0) { cam.yaw -= (e.clientX - p.x) * 0.008; cam.pitch = Math.max(-1.4, Math.min(1.4, cam.pitch + (e.clientY - p.y) * 0.008)); }
+  else if (pointers.size === 2) {
+    const ids = [...pointers.keys()], o = pointers.get(ids[0] === e.pointerId ? ids[1] : ids[0]);
+    const d0 = Math.hypot(p.x - o.x, p.y - o.y), d1 = Math.hypot(e.clientX - o.x, e.clientY - o.y);
+    if (d0 > 0) cam.dist = Math.max(0.35, Math.min(2.5, cam.dist * d0 / d1));
+  }
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+});
+const endP = e => pointers.delete(e.pointerId);
+cv.addEventListener('pointerup', endP); cv.addEventListener('pointercancel', endP);
+cv.addEventListener('wheel', e => { e.preventDefault(); cam.dist = Math.max(0.35, Math.min(2.5, cam.dist * Math.exp(e.deltaY * 0.001))); }, { passive: false });
+
+
+async function checkShader(m, name) {
+  if (!m.getCompilationInfo) return;
+  const info = await m.getCompilationInfo();
+  for (const x of info.messages) if (x.type === 'error') throw new Error(`${name} ${x.lineNum}:${x.linePos} ${x.message}`);
+}
+async function initGPU() {
+  if (!navigator.gpu) throw new Error('このブラウザはWebGPUに対応していません（PCのChrome / Edge / Safari 26以降でお試しください）。');
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+  if (!adapter) throw new Error('GPUアダプタを取得できませんでした。');
+  const need = 19 * 4 * 420000;
+  const lim = adapter.limits;
+  device = await adapter.requestDevice({ requiredLimits: {
+    maxStorageBufferBindingSize: Math.min(lim.maxStorageBufferBindingSize, Math.max(need, 134217728)),
+    maxBufferSize: Math.min(lim.maxBufferSize, Math.max(need, 268435456)),
+    maxStorageBuffersPerShaderStage: Math.min(lim.maxStorageBuffersPerShaderStage, 10),
+  } });
+  device.lost.then(i => showErr('GPUデバイスが失われました: ' + i.message));
+  let errN = 0;
+  device.addEventListener('uncapturederror', e => { if (errN++ < 3) showErr('WebGPUエラー: ' + e.error.message); });
+  ctx = $('sim').getContext('webgpu');
+  format = navigator.gpu.getPreferredCanvasFormat();
+  ctx.configure({ device, format, alphaMode: 'opaque' });
+  const mk = async (code, name) => { const m = device.createShaderModule({ code, label: name }); await checkShader(m, name); return m; };
+  const [mCol, mFlux, mAdv1, mAdv3, mSum, mRen] = await Promise.all([mk(COLLIDE, 'collide'), mk(FLUX, 'flux'), mk(ADV1, 'adv1'), mk(ADV3, 'adv3'), mk(SUM, 'sum'), mk(RENDER, 'render')]);
+  const cp = m => device.createComputePipeline({ layout: 'auto', compute: { module: m, entryPoint: 'main' } });
+  pCol = cp(mCol); pFlux = cp(mFlux); pAdv1 = cp(mAdv1); pAdv3 = cp(mAdv3); pSum = cp(mSum);
+  pRen = device.createRenderPipeline({ layout: 'auto', vertex: { module: mRen, entryPoint: 'vs' }, fragment: { module: mRen, entryPoint: 'fs', targets: [{ format }] }, primitive: { topology: 'triangle-list' } });
+  uBuf = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  uBufFwd = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  rBuf = device.createBuffer({ size: rData.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+}
+function setupBuffers() {
+  for (const k in B) B[k].destroy?.();
+  B = {};
+  const SB = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
+  const nf = F.nf;
+  const mkb = (size, label) => device.createBuffer({ size: Math.max(16, Math.ceil(size / 4) * 4), usage: SB, label });
+  B.fA = mkb(19 * nf * 4, 'fA'); B.fB = mkb(19 * nf * 4, 'fB');
+  B.nb = mkb(19 * nf * 4, 'nb'); B.type = mkb(nf * 4, 'type'); B.fpos = mkb(nf * 4, 'fpos');
+  B.dmap = mkb(F.dense2f.byteLength, 'dmap'); B.vel = mkb(nf * 16, 'vel');
+  B.ctr = mkb(16, 'ctr'); B.stats = mkb(32, 'stats'); B.csum = mkb(16, 'csum'); B.ring = mkb(4 * 16384, 'ring');
+  B.slab = mkb(Math.max(4, F.slab.byteLength), 'slab');
+  B.c = [mkb(nf * 4, 'c0'), mkb(nf * 4, 'c1'), mkb(nf * 4, 'c2')];
+  const q = device.queue;
+  q.writeBuffer(B.nb, 0, F.nb); q.writeBuffer(B.type, 0, F.type); q.writeBuffer(B.fpos, 0, F.f2dense);
+  q.writeBuffer(B.dmap, 0, F.dense2f); q.writeBuffer(B.slab, 0, F.slab);
+  const bg = (p, list) => device.createBindGroup({ layout: p.getBindGroupLayout(0), entries: list.map((b, i) => ({ binding: i, resource: { buffer: b } })) });
+  bgCol = [bg(pCol, [uBuf, B.fA, B.fB, B.nb, B.type, B.vel, B.ctr, B.stats]), bg(pCol, [uBuf, B.fB, B.fA, B.nb, B.type, B.vel, B.ctr, B.stats])];
+  bgFlux = bg(pFlux, [uBuf, B.vel, B.ctr, B.stats, B.ring, B.slab]);
+  bgAdv1 = []; bgAdv2 = []; bgAdv3 = []; bgSum = []; bgRen = [];
+  for (let k = 0; k < 3; k++) {
+    const c0 = B.c[k], c1 = B.c[(k + 1) % 3], c2 = B.c[(k + 2) % 3];
+    bgAdv1.push(bg(pAdv1, [uBuf, c0, c1, B.vel, B.dmap, B.fpos]));
+    bgAdv2.push(bg(pAdv1, [uBufFwd, c1, c2, B.vel, B.dmap, B.fpos]));
+    bgAdv3.push(bg(pAdv3, [uBuf, c0, c1, c2, B.vel, B.dmap, B.fpos, B.type, B.nb]));
+    bgSum.push(bg(pSum, [uBuf, c0, B.type, B.csum]));
+    bgRen.push(bg(pRen, [rBuf, B.dmap, B.type, c0]));
+  }
+}
+function writeUniform() {
+  const nu = UPEAK * F.dCells / P.Re;
+  uU[0] = F.nf; uU[1] = G.nx; uU[2] = G.ny; uU[3] = G.nz;
+  uF[4] = 3 * nu + 0.5; uF[5] = 0.14; uF[6] = P.chRatio * UPEAK; uF[7] = 1 / F.sinusCells;
+  uF[8] = R.omega; uF[9] = nu / 0.8; uF[10] = SCALAR_EVERY; uF[11] = 1;
+  uU[12] = F.slab.length; uU[13] = R.T; uF[14] = R.warm > 0 ? 0 : R.F0;
+  const wc = 2 * Math.PI / (4 * R.T), slabCells = Math.max(1, F.slab.length);
+  uF[15] = R.warm > 0 ? 0 : 2 * 0.8 * wc / slabCells; uF[16] = R.warm > 0 ? 0 : wc * wc / slabCells;
+  uF[17] = F.axis[0]; uF[18] = F.axis[1]; uF[19] = F.axis[2];
+  device.queue.writeBuffer(uBuf, 0, uData);
+  uF[11] = -1; device.queue.writeBuffer(uBufFwd, 0, uData);
+}
+function resetFlow() {
+  const nf = F.nf, f = new Float32Array(19 * nf);
+  const uin = P.chRatio * UPEAK;
+  for (let k = 0; k < nf; k++) {
+    const t = F.type[k];
+    const uy = (t === 1 || t === 3 || t === 4) ? -uin * 0.3 : 0;
+    for (let q = 0; q < 19; q++) { const eu = EY[q] * uy; f[q * nf + k] = WQ[q] * (1 + 3 * eu + 4.5 * eu * eu - 1.5 * uy * uy); }
+  }
+  device.queue.writeBuffer(B.fA, 0, f); device.queue.writeBuffer(B.fB, 0, f);
+  device.queue.writeBuffer(B.vel, 0, new Float32Array(nf * 4));
+  resetScalar();
+  R.cur = 0; R.gstep = 0;
+}
+function resetScalar() {
+  for (const b of B.c) device.queue.writeBuffer(b, 0, F.c0);
+  device.queue.writeBuffer(B.ctr, 0, new Uint32Array(4));
+  device.queue.writeBuffer(B.stats, 0, new Float32Array(8));
+  device.queue.writeBuffer(B.ring, 0, new Float32Array(16384));
+  R.ck = 0;
+}
+function encodeSteps(enc, n) {
+  const pass = enc.beginComputePass();
+  const wg = Math.ceil(F.nf / 64);
+  for (let s = 0; s < n; s++) {
+    pass.setPipeline(pCol); pass.setBindGroup(0, bgCol[R.cur]); pass.dispatchWorkgroups(wg);
+    pass.setPipeline(pFlux); pass.setBindGroup(0, bgFlux); pass.dispatchWorkgroups(1);
+    R.cur ^= 1; R.gstep++;
+    if (R.gstep % SCALAR_EVERY === 0) {
+      pass.setPipeline(pAdv1);
+      pass.setBindGroup(0, bgAdv1[R.ck]); pass.dispatchWorkgroups(wg);
+      pass.setBindGroup(0, bgAdv2[R.ck]); pass.dispatchWorkgroups(wg);
+      pass.setPipeline(pAdv3); pass.setBindGroup(0, bgAdv3[R.ck]); pass.dispatchWorkgroups(wg);
+      R.ck = (R.ck + 2) % 3;
+    }
+  }
+  pass.end();
+}
+function encodeCycleEnd(enc, cycle) {
+  enc.clearBuffer(B.csum);
+  const pass = enc.beginComputePass();
+  pass.setPipeline(pSum); pass.setBindGroup(0, bgSum[R.ck]); pass.dispatchWorkgroups(Math.ceil(F.nf / 64));
+  pass.end();
+  const rb = device.createBuffer({ size: 32, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  enc.copyBufferToBuffer(B.stats, 0, rb, 0, 16);
+  enc.copyBufferToBuffer(B.csum, 0, rb, 16, 16);
+  enc.clearBuffer(B.stats, 0, 8);
+  const runId = R.runId;
+  return () => rb.mapAsync(GPUMapMode.READ).then(() => {
+    const ab = rb.getMappedRange();
+    const st = new Float32Array(ab.slice(0, 16)), cs = new Uint32Array(ab.slice(16, 32));
+    rb.unmap(); rb.destroy();
+    if (runId !== R.runId) return;
+    R.wait = false;
+    onCycle(cycle, st[0], st[1], cs[0] / FIX);
+  });
+}
+function writeRender(aspect) {
+  const tgt = [(GEOM_INFO.A[0] + G.nx / 2) / 2, (GEOM_INFO.A[1] + G.ny / 2) / 2, (GEOM_INFO.A[2] + G.nz / 2) / 2];
+  const D = Math.max(G.nx, G.ny, G.nz) * 1.55 * cam.dist;
+  const eye = [tgt[0] + D * Math.cos(cam.pitch) * Math.cos(cam.yaw), tgt[1] + D * Math.cos(cam.pitch) * Math.sin(cam.yaw), tgt[2] + D * Math.sin(cam.pitch)];
+  let fw = [tgt[0] - eye[0], tgt[1] - eye[1], tgt[2] - eye[2]]; const fl = Math.hypot(...fw); fw = fw.map(v => v / fl);
+  const upw = [0, 0, 1];
+  let rt = [fw[1] * upw[2] - fw[2] * upw[1], fw[2] * upw[0] - fw[0] * upw[2], fw[0] * upw[1] - fw[1] * upw[0]]; const rl = Math.hypot(...rt); rt = rt.map(v => v / rl);
+  const up = [rt[1] * fw[2] - rt[2] * fw[1], rt[2] * fw[0] - rt[0] * fw[2], rt[0] * fw[1] - rt[1] * fw[0]];
+  rData.set([...eye, 0, ...fw, 0, ...rt, 0, ...up, 0, G.nx, G.ny, G.nz, 0, aspect, Math.tan(0.36), VIEW, 0, GEOM_INFO.A[0], GEOM_INFO.A[1], GEOM_INFO.A[2], 0]);
+  device.queue.writeBuffer(rBuf, 0, rData);
+}
+function sizeCanvas() {
+  const w = cv.clientWidth, h = cv.clientHeight;
+  const sc = Math.min(devicePixelRatio || 1, 1.25);
+  const W = Math.max(64, Math.round(w * sc)), H = Math.max(64, Math.round(h * sc));
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+}
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dtF = lastT ? now - lastT : 16; lastT = now;
+  if (R.running) { if (dtF > 30) spf = Math.max(2, spf * 0.85); else if (dtF < 22) spf = Math.min(600, spf * 1.08); }
+  sizeCanvas();
+  const enc = device.createCommandEncoder();
+  const after = [];
+  if (R.running && R.warmDone) { R.warmDone = false; resetScalar(); writeUniform(); }
+  if (R.running && R.warm > 0) {
+    const n = Math.min(Math.max(1, Math.round(spf)), R.warm);
+    encodeSteps(enc, n); R.warm -= n; spsAcc += n;
+    if (R.warm <= 0) R.warmDone = true;
+  } else if (R.running && !R.wait) {
+    let budget = Math.max(1, Math.round(spf));
+    while (budget > 0 && R.running && !R.wait) {
+      const n = Math.min(budget, R.T - R.stepInCycle);
+      encodeSteps(enc, n);
+      budget -= n; R.stepInCycle += n; spsAcc += n;
+      if (R.stepInCycle >= R.T) {
+        after.push(encodeCycleEnd(enc, R.cycle));
+        R.cycle++; R.stepInCycle = 0; R.wait = true;
+        if (R.cycle >= CYCLES) R.running = false;
+      }
+    }
+  }
+  writeRender(cv.width / cv.height);
+  const rp = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
+  rp.setPipeline(pRen); rp.setBindGroup(0, bgRen[R.ck]); rp.draw(3); rp.end();
+  device.queue.submit([enc.finish()]);
+  after.forEach(fn => fn());
+  if (now - spsT > 500) { sps = spsAcc / ((now - spsT) / 1000); spsAcc = 0; spsT = now; }
+  const st = R.running && (R.warm > 0 || R.warmDone) ? '準備中（流れを落ち着かせています）' : (R.running || R.cycle > 0) ? `周期 ${R.cycle + 1}・位相 ${(R.stepInCycle / R.T * 360).toFixed(0)}°` : '待機中';
+  $('hud').innerHTML = `${st}<br>${Math.round(sps).toLocaleString()} ステップ/秒・流体 ${F.nf.toLocaleString()} セル`;
+}
+
+
+// ---------------- geometry with rounded ostium edges ----------------
+// The ostium is a cylinder from A (sinus side) to B (nasal side). Each end is widened by a
+// quarter-circle fillet of radius rf, so the throat diameter and the wall thickness stay fixed.
+function buildFluid(dmm, rfmm = 0) {
+  const { nx, ny, nz } = G, N = nx * ny * nz;
+  const A = GEOM_INFO.A, Bp = GEOM_INFO.B;
+  const ax = [Bp[0] - A[0], Bp[1] - A[1], Bp[2] - A[2]];
+  const len = Math.hypot(...ax); const a = ax.map(v => v / len);
+  const r = dmm / 2 / G.dx, rf = Math.min(rfmm / G.dx, len / 2), Rmax = r + rf;
+  const ext = 1.5;
+  const m = new Uint8Array(G.base);
+  const tParam = new Float32Array(N).fill(-1), tAx = new Float64Array(N);   // tAx: exact axial coordinate for the slab test
+  const lo = [0, 1, 2].map(i => Math.max(1, Math.floor(Math.min(A[i], Bp[i]) - Rmax - ext - 1)));
+  const hi = [0, 1, 2].map(i => Math.min([nx, ny, nz][i] - 2, Math.ceil(Math.max(A[i], Bp[i]) + Rmax + ext + 1)));
+  for (let z = lo[2]; z <= hi[2]; z++) for (let y = lo[1]; y <= hi[1]; y++) for (let x = lo[0]; x <= hi[0]; x++) {
+    const px = x - A[0], py = y - A[1], pz = z - A[2];
+    const t = px * a[0] + py * a[1] + pz * a[2];
+    if (t < -ext || t > len + ext) continue;
+    const s = Math.min(t, len - t);
+    let rr = r;
+    if (s < 0) rr = Rmax;
+    else if (s < rf) rr = r + rf - Math.sqrt(Math.max(0, rf * rf - (rf - s) * (rf - s)));
+    const qx = px - t * a[0], qy = py - t * a[1], qz = pz - t * a[2];
+    if (qx * qx + qy * qy + qz * qz > rr * rr) continue;
+    const i = (z * ny + y) * nx + x;
+    if (m[i] === 0) { m[i] = 5; tParam[i] = Math.max(0, Math.min(1, t / len)); tAx[i] = t; }
+  }
+  const dense2f = new Uint32Array(N).fill(NONE);
+  let nf = 0;
+  for (let i = 0; i < N; i++) if (m[i]) dense2f[i] = nf++;
+  const f2dense = new Uint32Array(nf), type = new Uint32Array(nf), c0 = new Float32Array(nf);
+  let sinusCells = 0, tubeCells = 0;
+  const slab = [];
+  for (let i = 0; i < N; i++) if (m[i]) {
+    const k = dense2f[i]; f2dense[k] = i; type[k] = m[i];
+    if (m[i] === 2) { sinusCells++; c0[k] = 1; }
+    if (m[i] === 5) { tubeCells++; c0[k] = 1 - tParam[i]; const sm = tAx[i] - len / 2; if (sm >= -0.5 && sm < 0.5) slab.push(k); }
+  }
+  const nb = new Uint32Array(19 * nf);
+  for (let k = 0; k < nf; k++) {
+    const i = f2dense[k], x = i % nx, y = ((i / nx) | 0) % ny, z = (i / (nx * ny)) | 0;
+    for (let q = 0; q < 19; q++) {
+      const sx = x - EX[q], sy = y - EY[q], sz = z - EZ[q];
+      let j = NONE;
+      if (sx >= 0 && sy >= 0 && sz >= 0 && sx < nx && sy < ny && sz < nz) j = dense2f[(sz * ny + sy) * nx + sx];
+      nb[q * nf + k] = j;
+    }
+  }
+  Object.assign(F, { nf, dense2f, f2dense, type, nb, slab: new Uint32Array(slab), sinusCells, tubeCells, axis: a, tubeLen: len, dCells: 2 * r, area: Math.PI * r * r, c0, dmm, rfc: rf });
+}
+// idealized geometry: sphere cavity + ostium + nasal channel (same as the dead-volume verification)
+const DC = +qs.get("dc") || 10;
+function makeIdeal(d, Lratio) {
+  const dx = d / DC, Lc = Math.max(2, Math.round(Lratio * DC)), Rc = Math.round(3.2 * DC);
+  const Hc = 2 * DC, Wc = 4 * DC;
+  const nx = Math.max(2 * Rc + 8, Wc + 8), ny = 2 * Rc + 14;
+  const cz = Rc + 2, f0 = cz + Rc + 1, zc0 = f0 + Lc, nz = zc0 + Hc + 2;
+  const cx = (nx - 1) / 2, cy = (ny - 1) / 2;
+  const m = new Uint8Array(nx * ny * nz);
+  for (let z = 1; z < nz - 1; z++) for (let y = 0; y < ny; y++) for (let x = 1; x < nx - 1; x++) {
+    const i = (z * ny + y) * nx + x;
+    if (z >= zc0 && z < zc0 + Hc && Math.abs(x - cx) <= Wc / 2) m[i] = y === 0 ? 4 : y === ny - 1 ? 3 : 1;
+    else if (y > 0 && y < ny - 1) { const a = x - cx, b = y - cy, c = z - cz; if (a * a + b * b + c * c <= Rc * Rc) m[i] = 2; }
+  }
+  Object.assign(G, { nx, ny, nz, dx, base: m });
+  GEOM_INFO = { A: [cx, cy, f0 - 0.5], B: [cx, cy, zc0 - 0.5], dims: [nx, ny, nz] };
+  return Lc;
+}
+let P001_BASE = null;
+async function loadP001() {
+  const bin = Uint8Array.from(atob(GEOM_B64), ch => ch.charCodeAt(0));
+  if (typeof DecompressionStream === 'undefined') throw new Error('このブラウザは DecompressionStream に対応していません。');
+  const ds = new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'));
+  P001_BASE = new Uint8Array(await new Response(ds).arrayBuffer());
+}
+let curKey = '';
+function setGeometry(spec) {
+  const key = JSON.stringify(spec);
+  if (key === curKey) return;
+  curKey = key;
+  if (spec.kind === 'ideal') { makeIdeal(spec.d, spec.Lr); buildFluid(spec.d, spec.rf * spec.d); }
+  else {
+    [G.nx, G.ny, G.nz] = P001_INFO.dims; G.dx = P001_INFO.dx; G.base = P001_BASE; GEOM_INFO = P001_INFO;
+    buildFluid(spec.d, spec.rfmm);
+  }
+  // the drive slab must be one cell layer of the ostium cross-section (empty = no drive, double = flux counted twice)
+  if (!F.slab.length || F.slab.length > 1.4 * F.area) showErr(`駆動層の大きさが不正です（${F.slab.length} セル、断面 ${F.area.toFixed(0)} セル）。`);
+  setupBuffers();
+  R.T = 1000; R.omega = 2 * Math.PI / 1000; R.F0 = 0; R.warm = 0;
+  writeUniform(); resetFlow();
+  setView(spec.kind === 'ideal' ? 2 : 1);
+}
+
+// ---------------- one run: tune the stroke, then measure ----------------
+// ctl = true: control run. Same geometry and period, drive amplitude held at zero, no tuning;
+// what the sinus still loses (diffusion, the exhaled cross-flow, numerical error) is the floor under eta.
+function startRun(L0d, onDone, ctl = false) {
+  R.runId++;
+  if (qs.has('fake')) {
+    const e = 0.1 + 0.4 * Math.random(), series = Array.from({ length: NMEAS_C }, () => 0.007 + 0.003 * Math.random());
+    R.T = Math.min(16000, Math.max(200, Math.round(Math.PI * L0d * F.dCells / UPEAK)));
+    setTimeout(() => onDone(ctl ? { ctl: true, floor: series.reduce((a, v) => a + v, 0) / series.length, series, inRel: 0, n: NMEAS_C }
+                                : { eta: e, L0d: L0d * (0.95 + 0.1 * Math.random()), n: 3, onTarget: Math.random() > 0.3 }), 30);
+    return;
+  }
+  R.target = L0d * F.dCells * F.area;
+  const L0 = L0d * F.dCells;
+  R.T = Math.min(16000, Math.max(200, Math.round(Math.PI * L0 / UPEAK)));
+  R.omega = 2 * Math.PI / R.T;
+  R.F0 = ctl ? 0 : 0.75 * L0 * R.omega * R.omega;
+  R.cycle = 0; R.stepInCycle = 0; R.done = false; R.wait = false; R.phase = ctl ? 'control' : 'tune'; R.meas = []; R.results = []; R.Cprev = F.sinusCells; R.onDone = onDone;
+  R.warm = Math.round(Number(qs.get('warm')) || 1500); R.warmDone = false;
+  resetFlow(); writeUniform();
+  R.running = true;
+}
+// Phase 1 (tune): adjust the drive amplitude once per cycle, exactly at the cycle boundary.
+// Phase 2 (measure): once a cycle lands within TOL of the target, freeze the amplitude,
+// let one cycle settle, then measure NMEAS cycles at that fixed amplitude.
+const RUNIN = 4, NMEAS = 3, TOL = 0.08, DRIFT = 0.12, TUNE_MAX = 10, NMEAS_C = 6;
+function onCycle(k, inflow, outflow, Cc) {
+  if (R.done) return;
+  const Vex = F.sinusCells * (1 - Cc / R.Cprev);
+  const eta = inflow > 0 ? Vex / inflow : NaN;
+  const L0d = inflow / F.area / F.dCells;
+  R.Cprev = Cc;
+  if (!isFinite(Cc) || !isFinite(inflow)) { showErr('計算が発散しました。'); R.running = false; R.done = true; const cb = R.onDone; R.onDone = null; if (cb) cb(null); return; }
+  const err = inflow / R.target - 1;
+  let lab;
+  if (R.phase === 'control') {
+    if (k >= RUNIN) R.meas.push({ k, inflow, Vex, L0d });
+    lab = k < RUNIN ? '助走・往復なし' : `測定 ${R.meas.length}/${NMEAS_C}・往復なし`;
+  } else if (R.phase === 'tune') {
+    if ((k >= 2 && Math.abs(err) < TOL) || k >= TUNE_MAX) { R.phase = 'measure'; R.measFrom = Math.max(RUNIN, k + 2); lab = '振幅を固定'; }
+    else { const g = Math.max(0.4, Math.min(2.5, R.target / Math.max(inflow, 1e-6))); R.F0 = Math.min(1.5e-2, R.F0 * Math.pow(g, 0.9)); writeUniform(); lab = k < RUNIN ? '助走・振幅を調整中' : '振幅を調整中'; }
+  } else if (k >= R.measFrom) {
+    R.meas.push({ k, inflow, Vex, L0d });
+    lab = `測定 ${R.meas.length}/${NMEAS}`;
+    if (Math.abs(err) > DRIFT && k < TUNE_MAX + 4) { R.phase = 'tune'; R.meas = []; lab = 'ずれたので再調整'; }
+  } else lab = '落ち着くのを待つ';
+  if (qs.has('dbg')) console.log('cyc', k, R.phase, 'F0', R.F0.toExponential(3), 'in', inflow.toFixed(2), 'tgt', R.target.toFixed(2), 'eta', eta.toFixed(3), 'vex/tgt', (Vex / R.target).toFixed(4));
+  $('runv').textContent = R.phase === 'control'
+    ? `周期 ${k + 1}：往復なし、この周期に洞から減った量 ${(Vex / R.target * 100).toFixed(1)}%（往復させたときの流入量に対して。${lab}）`
+    : `周期 ${k + 1}：空気柱 ${(L0d * F.dCells / F.tubeLen).toFixed(2)}L（目標 ${(R.target / F.area / F.tubeLen).toFixed(2)}L）、この周期の混合率 ${isFinite(eta) ? (eta * 100).toFixed(0) + '%' : '—'}（${lab}）`;
+  if (R.meas.length >= (R.phase === 'control' ? NMEAS_C : NMEAS) || k >= CYCLES - 1) {
+    const ctl = R.phase === 'control';
+    R.done = true; R.running = false;
+    const m = R.meas.length ? R.meas : [{ inflow, Vex, L0d }];
+    const sIn = m.reduce((a, r) => a + r.inflow, 0), sEx = m.reduce((a, r) => a + r.Vex, 0);
+    const L0dm = m.reduce((a, r) => a + r.L0d, 0) / m.length;
+    const out = ctl
+      ? { ctl: true, floor: sEx / (m.length * R.target), series: m.map(r => r.Vex / R.target), inRel: sIn / (m.length * R.target), n: R.meas.length }
+      : { eta: Math.max(0, sEx / sIn), L0d: L0dm, n: R.meas.length, onTarget: Math.abs(sIn / m.length / R.target - 1) < TOL * 1.5, spread: m.length > 1 ? Math.max(...m.map(r => r.Vex / r.inflow)) - Math.min(...m.map(r => r.Vex / r.inflow)) : 0 };
+    const cb = R.onDone; R.onDone = null; if (cb) cb(out);
+  }
+}
+let jobs = [], jobTotal = 0, jobDone = 0;
+function runJobs(list, doneMsg) {
+  jobs = list.slice(); jobTotal = list.length; jobDone = 0;
+  enable(false);
+  const next = () => {
+    if (!jobs.length) { $('status').textContent = doneMsg; enable(true); $('prog').style.width = '100%'; return; }
+    const j = jobs.shift();
+    setGeometry(j.spec);
+    $('status').textContent = `${jobDone + 1}/${jobTotal}：${j.label}`;
+    $('prog').style.width = (jobDone / jobTotal * 100) + '%';
+    startRun(j.L0d, res => { jobDone++; j.after(res); setTimeout(next, 0); }, !!j.ctl);
+  };
+  next();
+}
+function enable(on) { $('bE1').disabled = !on; $('bE2').disabled = !on; $('bC').disabled = !on; }
+$('bStop').onclick = () => { R.running = false; R.done = true; R.runId++; jobs = []; enable(true); $('status').textContent = '停止しました。'; };
+
+// ---------------- lumped resonance + NO model (same as the integrated page) ----------------
+let HARM = 0;
+const C = { f: 150, P0: 100, d: 2.8, muc: 0, mucus: 50 };
+// ---------------- lumped resonance (same as the ventilation map) ----------------
+const RHO = 1.14, C0 = 350, MU = 1.9e-5, KLOSS = 1.5, DNO = 2.0e-5;
+// mixing law (3D LBM, ideal geometry, refit 2026-11-21, results/deadspace_law_fit.md):
+// eta = m (1 - exp(-(x/x0)^n)) (1 - exp(-(j/k)^p)) exp(-(L/d)/lam),
+// x = L0/L (dead space), j = L0/d = x * L/d (stroke in diameters), last factor: long tubes mix less
+const MIX = { m: 0.695, x0: 1.68, n: 1.76, k: 1.15, p: 0.57, lam: 48 };
+const sat = (v, v0, n) => 1 - Math.exp(-Math.pow(Math.max(v, 0) / v0, n));
+const mixLaw = (x, ld) => MIX.m * sat(x, MIX.x0, MIX.n) * sat(x * ld, MIX.k, MIX.p) * Math.exp(-ld / MIX.lam);
+function lumped(V, d, Lmm, f, P0) {
+  const r = d / 2e3, A = Math.PI * r * r, L = Lmm / 1e3, Le = L + 1.7 * r, Vm = V * 1e-6, w = 2 * Math.PI * f;
+  const M = RHO * Le / A, Cc = Vm / (RHO * C0 * C0), X = w * M - 1 / (w * Cc);
+  const Rl = Math.max(8 * MU * L / (Math.PI * r ** 4), (L / (Math.PI * r ** 3)) * Math.sqrt(2 * RHO * MU * w)) + RHO * w * w / (2 * Math.PI * C0);
+  const k = (8 / (3 * Math.PI)) * KLOSS * RHO / (2 * A * A);
+  let lo = 0, hi = P0 / Math.sqrt(Rl * Rl + X * X);
+  for (let i = 0; i < 60; i++) { const q = (lo + hi) / 2; if (q * Math.sqrt((Rl + k * q) ** 2 + X * X) > P0) hi = q; else lo = q; }
+  const Vin = 2 * lo / w, L0 = Vin / A;
+  return { Vin, L0mm: L0 * 1e3, x: L0 / L, ld: L / (2 * r), f0: C0 / (2 * Math.PI) * Math.sqrt(A / (Vm * Le)), kD: DNO * A / (Vm * Le), Vm };
+}
+// sound pressure at each ostium relative to the maxillary ostium during humming [m] with the nose open
+// (1D tract model, tools/ostium_pressure.py / results/ostium_pressure.json); C.P0 is the maxillary ostium's pressure
+const OSTP = {"f":[50,53,57,61,65,70,74,80,85,91,97,104,111,118,127,135,144,154,165,176,188,201,215,230,246,262,280,300,320,342,365,391,417,446,476,509,544,581,621,664,709,758,810,865,925,988,1056,1128,1206,1288,1376,1471,1572,1679,1795,1918,2049,2190,2340,2500],"sph":[1.44,1.44,1.44,1.44,1.44,1.44,1.44,1.43,1.43,1.43,1.43,1.43,1.42,1.42,1.41,1.41,1.41,1.4,1.39,1.38,1.37,1.36,1.34,1.32,1.3,1.29,1.32,1.49,1.68,1.72,1.69,1.64,1.6,1.57,1.54,1.52,1.49,1.47,1.45,1.42,1.4,1.37,1.33,1.3,1.26,1.21,1.16,1.11,1.04,0.97,0.89,0.79,0.69,0.57,0.45,0.35,0.34,0.47,0.74,1.11],"fro":[0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.85,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.86,0.87,0.87,0.87,0.87,0.87,0.88,0.88,0.88,0.89,0.89,0.9,0.9,0.91,0.92,0.93,0.95,0.96,0.98,1.0,1.03,1.06,1.1,1.15,1.22,1.32,1.45],"eth":[1.11,1.11,1.11,1.11,1.11,1.11,1.11,1.11,1.11,1.11,1.11,1.11,1.1,1.1,1.1,1.1,1.1,1.1,1.09,1.09,1.09,1.08,1.08,1.07,1.06,1.06,1.07,1.12,1.19,1.21,1.2,1.18,1.17,1.16,1.15,1.15,1.14,1.13,1.13,1.12,1.11,1.1,1.1,1.09,1.08,1.07,1.05,1.04,1.02,1.0,0.98,0.96,0.93,0.9,0.86,0.82,0.78,0.75,0.78,0.91]};
+function ostG(id, f) {
+  const g = OSTP[id]; if (!g) return 1;   // maxillary = 1 (the reference)
+  const F = OSTP.f; if (f <= F[0]) return g[0]; if (f >= F[F.length - 1]) return g[g.length - 1];
+  let i = 0; while (F[i + 1] < f) i++;
+  const t = Math.log(f / F[i]) / Math.log(F[i + 1] / F[i]);
+  return g[i] + t * (g[i + 1] - g[i]);
+}
+// humming exchange rate (1/s): fundamental with mixing efficiency eta0 (null = fitted law), plus harmonics from the law
+function humRate(V, d, Lmm, eta0, id = 'max') {
+  const r = lumped(V, d, Lmm, C.f, C.P0 * ostG(id, C.f));
+  let k = (eta0 == null ? mixLaw(r.x, r.ld) : eta0) * r.Vin * C.f / r.Vm;
+  if (HARM > 0) for (let h = 2; h <= 6; h++) { const q = lumped(V, d, Lmm, C.f * h, C.P0 * Math.pow(h, -HARM) * ostG(id, C.f * h)); k += mixLaw(q.x, q.ld) * q.Vin * C.f * h / q.Vm; }
+  return { k, kD: r.kD };
+}
+const SIN = [
+  { name: '上顎洞', id: 'max', V: 14.0, d: 2.8, L: 2.1, n: 1 },
+  { name: '蝶形骨洞', id: 'sph', V: 4.0, d: 2.2, L: 1.5, n: 1 },
+  { name: '前頭洞', id: 'fro', V: 2.9, d: 7.5, L: 4.0, n: 1 },
+  { name: '篩骨蜂巣', id: 'eth', V: 0.4, d: 1.5, L: 1.5, n: 8 },
+];
+// ---------------- NO model (same as the ventilation map; maxillary fundamental from 3D) ----------------
+// calibrated 2026-11-22 (results/no_kinetics_store.md): the sinus air is one well-mixed box (long 3D runs,
+// results/agefield_maxillary.md); a store at the mucosa (capacity 0.6 x the air, exchanging on 24 s, both scaled with
+// area/volume) receives all the production and loses NO on 120 s; the nasal mucosa makes 70 % of quiet nasal NO
+const NOP = { mucShare: 0.70, cssMax: 8000, tauRec: 120, Fside: 100 };
+const STORE = { sigma: 0.6, tauEx: 24 };
+const PROTO = [['silent', 5], ['in', 3], ['hum', 10], ['in', 3], ['hum', 10], ['in', 3], ['hum', 10], ['in', 3], ['silent', 5], ['rest', 180], ['hum', 10], ['in', 3], ['silent', 5]];
+// fraction of the sinus air exchanged in T s at exchange rate k (one well-mixed box)
+const exch1 = (k, T) => 1 - Math.exp(-k * T);
+function simulateNO(etaMx) {
+  const area = V => 4.836 * Math.pow(V, 2 / 3), kl = 1 / NOP.tauRec;
+  const set = SIN.map((s, i) => {
+    const de = Math.max(0.2, s.d - 2 * C.muc), cl = C.mucus / 1000 > 0.12 * de / 2;
+    const r = humRate(s.V, de, s.L, i === 0 ? etaMx : null, s.id);
+    return { ...s, S: area(s.V), kD: cl ? 0 : r.kD, kH: cl ? 0 : r.k, closed: cl };
+  });
+  // store per sinus, scaled with area/volume relative to the maxillary sinus; quiet steady state C (air), Sv (store)
+  const sv = set[0].S / set[0].V;
+  const withStore = (x, S, V) => { const f = (S / V) / sv; x.sg = STORE.sigma * f; x.ge = f / STORE.tauEx; return x; };
+  const ss = (x, P, kD) => { const Cq = P / (x.sg * kl * (1 + kD / x.ge) + kD); return { C: Cq, Sv: Cq * (1 + kD / x.ge) }; };
+  const prodPerArea = (x, kD) => (x.sg * kl * NOP.cssMax * (1 + kD / x.ge) + kD * NOP.cssMax) * x.V / x.S;   // maxillary air at cssMax
+  set.forEach(x => withStore(x, x.S, x.V));
+  const ppa = prodPerArea(set[0], set[0].kD);
+  set.forEach(x => { x.P = ppa * x.S / x.V; const q = ss(x, x.P, x.kD); x.C = q.C; x.Sv = q.Sv; });
+  // nasal mucosal source from its share of quiet nasal NO in a healthy reference (bony ostia, no swelling)
+  const ref = SIN.map(s => withStore({ s, V: s.V, S: area(s.V), kD: lumped(s.V, s.d, s.L, C.f, C.P0).kD }, area(s.V), s.V));
+  const ppaR = prodPerArea(ref[0], ref[0].kD);
+  const refFlux = ref.reduce((a, x) => a + x.s.n * x.V * x.kD * ss(x, ppaR * x.S / x.V, x.kD).C, 0);
+  const M = refFlux * NOP.mucShare / (1 - NOP.mucShare);
+  const dt = 0.05, out = []; let t = 0;
+  for (const [type, dur] of PROTO) {
+    const n = Math.round(dur / dt);
+    for (let i = 0; i < n; i++) {
+      let src = 0;
+      set.forEach(x => {
+        const k = x.kD + (type === 'hum' ? x.kH : 0); src += x.n * x.V * k * x.C;
+        const ex = x.ge * (x.Sv - x.C);
+        x.C += dt * (ex - k * x.C); x.Sv += dt * (x.P - x.sg * kl * x.Sv - ex) / x.sg;
+      });
+      const ex = type === 'silent' || type === 'hum';
+      if (i % 4 === 0) out.push({ t, type, c: ex ? (M + src) / NOP.Fside : null, cmx: set[0].C });
+      t += dt;
+    }
+  }
+  return out;
+}
+function summarize(out) {
+  const peaks = []; let cur = null;
+  out.forEach(p => { if (p.type === 'hum') cur = Math.max(cur || 0, p.c); else if (cur != null) { peaks.push(cur); cur = null; } });
+  if (cur != null) peaks.push(cur);
+  const silent = out.filter(p => p.type === 'silent');
+  const quiet = silent.slice(0, 20).reduce((a, p, _, arr) => a + p.c / arr.length, 0);
+  const firstPost = out.findIndex((p, i) => i > 0 && p.type === 'silent' && out[i - 1].type === 'in' && out.slice(0, i).filter(q => q.type === 'hum').length > 0);
+  const post = out.slice(firstPost, firstPost + 20).reduce((a, p, _, arr) => a + p.c / arr.length, 0);
+  // mean over the last 8 s of the first 10-s hum (how Maniscalco 2003 / Shusterman 2007 report the increase)
+  const seg = []; for (const p of out) { if (p.type === 'hum') seg.push(p); else if (seg.length) break; }
+  const tail = seg.slice(Math.round(seg.length * 0.2)), mean = tail.reduce((a, p) => a + p.c, 0) / tail.length;
+  return { ratio: peaks[0] / quiet, mean: mean / quiet, step: peaks[1] / peaks[0], recov: peaks[3] / peaks[0], drop: 1 - post / quiet };
+}
+
+
+
+// ---------------- experiment 1 ----------------
+// lr: ostium length / diameter (default 0.8 = P001). Used with rfs=0 to re-measure the dead-space law (roadmap 1).
+const LR = +qs.get('lr') || 0.8, RFS = qs.has('rfs') ? qs.get('rfs').split(',').map(Number) : [0, 0.2, 0.4], XS = qs.has('xs') ? qs.get('xs').split(',').map(Number) : [1, 2, 4];
+const LD1 = Math.max(2, Math.round(LR * DC)) / DC;   // L/d of the lattice ostium in experiment 1
+const E1 = [];
+$('bE1').onclick = () => {
+  if (!window.__ready || R.running) return;
+  E1.length = 0; drawE1();
+  const list = [];
+  RFS.forEach((rf, si) => XS.forEach(x => {
+    const Lc = Math.max(2, Math.round(LR * DC));
+    list.push({ spec: { kind: 'ideal', d: 2.0, Lr: LR, rf }, L0d: x * Lc / DC, label: `丸み ${rf}d、空気柱 ${x}L`,
+      after: res => { if (res) { E1.push({ si, rf, x: res.L0d * F.dCells / F.tubeLen, eta: res.eta, target: x, n: res.n, onTarget: res.onTarget }); drawE1(); } } });
+  }));
+  runJobs(list, '検証1が完了しました。');
+};
+
+// ---------------- control: no drive ----------------
+// Diffusion alone through a tube of length L and radius r between C = 1 and C = 0 moves D·A·T / (L + (π/2)·r)
+// per period (the (π/2)·r is the access resistance of the two ends), with D = ν / 0.8 as in the engine.
+const EC = [];
+function diffFloor(T, L0cells) {
+  const D = UPEAK * F.dCells / P.Re / 0.8, r = F.dCells / 2;
+  return D * T / ((F.tubeLen + Math.PI / 2 * r) * L0cells);
+}
+$('bC').onclick = () => {
+  if (!window.__ready || R.running) return;
+  EC.length = 0; drawC();
+  const list = [];
+  XS.forEach(x => {
+    const Lc = Math.max(2, Math.round(LR * DC));
+    list.push({ spec: { kind: 'ideal', d: 2.0, Lr: LR, rf: 0 }, L0d: x * Lc / DC, ctl: true, label: `往復なし・周期は空気柱 ${x}L と同じ`,
+      after: res => { if (res) { EC.push({ x, T: R.T, floor: res.floor, series: res.series, inRel: res.inRel, diff: diffFloor(R.T, x * F.tubeLen) }); drawC(); } } });
+  });
+  runJobs(list, '対照が完了しました。');
+};
+function drawC() {
+  const pct = v => (v * 100).toFixed(1) + '%';
+  const e1 = x => { const p = E1.find(q => q.si === 0 && q.target === x); return p ? (p.eta * 100).toFixed(0) + '%' : '—'; };
+  $('tC').innerHTML = `<tr><th class="num">周期（空気柱 L₀/L 相当）</th><th class="num">往復なしで減った量</th><th>周期ごと（5〜10周期目）</th><th class="num">拡散だけの見積もり</th><th class="num">検証1の混合率（鋭い縁）</th></tr>` +
+    EC.map(p => `<tr><td class="num">${p.x}L（${p.T}ステップ）</td><td class="num"><b>${pct(p.floor)}</b></td><td>${p.series.map(v => (v * 100).toFixed(1)).join(' / ')}</td><td class="num">${pct(p.diff)}</td><td class="num">${e1(p.x)}</td></tr>`).join('');
+  if (EC.length === XS.length) {
+    const mx = Math.max(...EC.map(p => p.floor)), md = Math.max(...EC.map(p => p.diff));
+    $('vC').innerHTML = mx <= Math.max(0.02, 2 * md)
+      ? `往復させないときの減り方は最大 <b>${pct(mx)}</b> で、拡散だけの見積もり（${pct(md)}）と同程度です。測った混合率の底上げは小さく、検証1の値はほぼ往復によるものです。`
+      : `往復させないときでも最大 <b>${pct(mx)}</b> 減り、拡散だけの見積もり（${pct(md)}）を大きく上回ります。計算の誤差か鼻腔を流れる息の効果が混合率に乗っています。小さい混合率（空気柱 1L 前後）を式と比べるときは、この分を差し引いて考える必要があります。`;
+  }
+}
+
+// ---------------- experiment 2 ----------------
+const DS = [2.0, 2.8, 4.0], RF2 = [0, 1.0];
+const E2 = [];
+function noRatio(d, eta) {
+  C.d = d; SIN[0].d = d; SIN[0].V = P001_INFO.sinus_ml; SIN[0].L = 2.1;
+  return summarize(simulateNO(eta)).ratio;
+}
+$('bE2').onclick = () => {
+  if (!window.__ready || R.running) return;
+  E2.length = 0; drawE2();
+  const list = [];
+  RF2.forEach((rfmm, si) => DS.forEach(d => {
+    const L = lumped(P001_INFO.sinus_ml, d, 2.1, C.f, C.P0);
+    list.push({ spec: { kind: 'p001', d, rfmm }, L0d: Math.max(0.05, L.L0mm / d), label: `直径 ${d} mm・${rfmm ? '丸い縁' : '鋭い縁'}（空気柱 ${L.L0mm.toFixed(2)} mm）`,
+      after: res => {
+        if (!res) return;
+        const xAch = res.L0d * F.dCells / F.tubeLen;
+        const eta = Math.min(1, res.eta * (res.onTarget ? 1 : mixLaw(L.x, L.ld) / Math.max(1e-6, mixLaw(xAch, L.ld))));
+        E2.push({ si, d, rfmm, L0mm: L.L0mm, x: L.x, xAch, eta, raw: res.eta, onTarget: res.onTarget, ratio: noRatio(d, eta), law: mixLaw(L.x, L.ld), ratioLaw: noRatio(d, null) });
+        drawE2();
+      } });
+  }));
+  runJobs(list, '検証2が完了しました。');
+};
+
+// ---------------- charts ----------------
+const css = n => getComputedStyle(document.body).getPropertyValue(n).trim();
+const tip = $('tip');
+function showTip(html, cx, cy) {
+  tip.innerHTML = html; tip.style.display = 'block';
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let x = cx + 12 + scrollX, y = cy - th - 10 + scrollY;
+  if (x + tw > scrollX + innerWidth - 6) x = cx - tw - 12 + scrollX;
+  if (y < scrollY + 4) y = cy + 14 + scrollY;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+function mkChart(id, draw) {
+  const host = $(id), cv2 = document.createElement('canvas'); host.appendChild(cv2);
+  const st = { host, cv: cv2, hov: null };
+  cv2.addEventListener('pointermove', e => { const r = cv2.getBoundingClientRect(); st.hov = { x: e.clientX - r.left, y: e.clientY - r.top, cx: e.clientX, cy: e.clientY }; draw(); });
+  cv2.addEventListener('pointerleave', () => { st.hov = null; tip.style.display = 'none'; draw(); });
+  return st;
+}
+function prep(st, ratio) {
+  const w = st.host.clientWidth, h = Math.max(230, Math.round(w * ratio)), dpr = Math.min(devicePixelRatio || 1, 2);
+  st.cv.width = Math.round(w * dpr); st.cv.height = Math.round(h * dpr); st.cv.style.height = h + 'px';
+  const g = st.cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  g.font = '11px system-ui, -apple-system, sans-serif';
+  return { g, w, h };
+}
+const COLS = ['--s1', '--s2', '--s3'];
+function seriesLines(g, pts, X, Y, groups, labelFn, box) {
+  const labs = [];
+  groups.forEach(si => {
+    const s = pts.filter(p => p.si === si).sort((a, b) => a.xv - b.xv);
+    if (!s.length) return;
+    g.strokeStyle = css(COLS[si]); g.lineWidth = 2; g.lineJoin = 'round'; g.beginPath();
+    s.forEach((p, i) => i ? g.lineTo(X(p.xv), Y(p.yv)) : g.moveTo(X(p.xv), Y(p.yv))); g.stroke();
+    const l = s[s.length - 1]; labs.push({ y: Y(l.yv), x: X(l.xv), t: labelFn(si) });
+  });
+  // direct labels at the line ends, de-collided
+  labs.sort((a, b) => a.y - b.y);
+  for (let i = 1; i < labs.length; i++) if (labs[i].y - labs[i - 1].y < 13) labs[i].y = labs[i - 1].y + 13;
+  g.fillStyle = css('--text-secondary'); g.textAlign = 'left'; g.textBaseline = 'middle';
+  labs.forEach(l => g.fillText(l.t, Math.min(l.x + 8, box.x + box.w - g.measureText(l.t).width), l.y));
+}
+function dots(g, pts, X, Y, hov) {
+  let hit = null;
+  pts.forEach(p => { const x = X(p.xv), y = Y(p.yv);
+    if (hov && Math.hypot(hov.x - x, hov.y - y) < 14) hit = p;
+    g.fillStyle = css(COLS[p.si]); g.strokeStyle = css('--surface-1'); g.lineWidth = 2; g.beginPath(); g.arc(x, y, 5, 0, 7); g.fill(); g.stroke(); });
+  return hit;
+}
+const c1 = mkChart('cE1', drawE1);
+function drawE1() {
+  const { g, w, h } = prep(c1, 0.55);
+  const box = { x: 40, y: 16, w: w - 52 - 70, h: h - 16 - 38 };
+  const lx0 = Math.log10(0.7), lx1 = Math.log10(5.5);
+  const X = v => box.x + (Math.log10(Math.max(0.7, Math.min(5.5, v))) - lx0) / (lx1 - lx0) * box.w, Y = v => box.y + box.h - Math.min(1, v) / 0.8 * box.h;
+  g.strokeStyle = css('--grid'); g.fillStyle = css('--text-muted'); g.lineWidth = 1; g.textAlign = 'right'; g.textBaseline = 'middle';
+  for (const v of [0, .2, .4, .6, .8]) { const y = Y(v); g.beginPath(); g.moveTo(box.x, y + .5); g.lineTo(box.x + box.w, y + .5); g.stroke(); g.fillText(Math.round(v * 100) + '%', box.x - 5, y); }
+  g.textAlign = 'center'; g.textBaseline = 'top';
+  for (const v of [1, 2, 4]) g.fillText(v, X(v), box.y + box.h + 5);
+  g.strokeStyle = css('--axis'); g.beginPath(); g.moveTo(box.x, box.y + box.h + .5); g.lineTo(box.x + box.w, box.y + box.h + .5); g.stroke();
+  g.fillStyle = css('--text-secondary'); g.textAlign = 'right'; g.fillText('L₀/L（空気柱 ÷ 自然口の長さ、対数軸）', box.x + box.w, box.y + box.h + 20);
+  g.textAlign = 'left'; g.textBaseline = 'bottom'; g.fillText('混合率 η', 2, box.y - 2);
+  g.save(); g.strokeStyle = css('--text-secondary'); g.setLineDash([5, 4]); g.lineWidth = 1.5; g.beginPath();
+  for (let i = 0; i <= 120; i++) { const v = 10 ** (lx0 + i / 120 * (lx1 - lx0)); i ? g.lineTo(X(v), Y(mixLaw(v, LD1))) : g.moveTo(X(v), Y(mixLaw(v, LD1))); }
+  g.stroke(); g.restore();
+  const pts = E1.map(p => ({ ...p, xv: p.x, yv: p.eta }));
+  seriesLines(g, pts, X, Y, [0, 1, 2], si => ['鋭い縁', '丸み0.2d', '丸み0.4d'][si], { ...box, w: box.w + 70 });
+  const hit = dots(g, pts, X, Y, c1.hov);
+  if (hit) showTip(`<b>丸み ${hit.rf}d・L₀/L ${hit.x.toFixed(2)}</b><br><span class="m">混合率（3D）</span> ${(hit.eta * 100).toFixed(0)}%<br><span class="m">これまでの式</span> ${(mixLaw(hit.x, LD1) * 100).toFixed(0)}%`, c1.hov.cx, c1.hov.cy);
+  else if (c1.hov) tip.style.display = 'none';
+  $('t1').innerHTML = `<tr><th>縁の丸み</th><th class="num">目標 L₀/L</th><th class="num">得られた L₀/L</th><th class="num">混合率（3D）</th><th class="num">これまでの式</th></tr>` +
+    E1.map(p => `<tr><td><span class="sw" style="background:var(${COLS[p.si]})"></span>${p.rf ? '丸み ' + p.rf + 'd' : '鋭い縁'}</td><td class="num">${p.target}</td><td class="num">${p.x.toFixed(2)}${p.onTarget ? '' : '（届かず）'}</td><td class="num"><b>${(p.eta * 100).toFixed(0)}%</b></td><td class="num">${(mixLaw(p.x, LD1) * 100).toFixed(0)}%</td></tr>`).join('');
+  if (E1.length === RFS.length * XS.length) {
+    const at = (si, x) => { const p = E1.find(q => q.si === si && q.target === x); return p ? p.eta : NaN; };
+    const d1 = XS.map(x => at(2, x) - at(0, x)), mean = d1.reduce((a, b) => a + b, 0) / d1.length;
+    const verdict = mean < -0.05 ? '見込みA（流れがはがれにくく、入れ替わりが減る）が勝ちました。' : mean > 0.05 ? '見込みB（まっすぐな死腔が短くなり、入れ替わりが増える）が勝ちました。' : '2つの効果がほぼ打ち消し合い、縁の丸みは混合率をあまり変えません。';
+    $('v1').innerHTML = `縁を全体に丸くすると、混合率は空気柱 1L・2L・4L でそれぞれ <b>${d1.map(v => (v > 0 ? '+' : '') + (v * 100).toFixed(0)).join('・')} ポイント</b> 変わりました。${verdict}`;
+  }
+}
+const c2 = mkChart('cE2', drawE2);
+function drawE2() {
+  const { g, w, h } = prep(c2, 0.5);
+  const box = { x: 40, y: 16, w: w - 52 - 70, h: h - 16 - 38 };
+  const ymax = Math.max(8, ...E2.map(p => p.ratio)) * 1.15;
+  const X = v => box.x + (v - 1.7) / (4.3 - 1.7) * box.w, Y = v => box.y + box.h - v / ymax * box.h;
+  g.strokeStyle = css('--grid'); g.fillStyle = css('--text-muted'); g.lineWidth = 1; g.textAlign = 'right'; g.textBaseline = 'middle';
+  const step = ymax > 20 ? 5 : 2;
+  for (let v = 0; v <= ymax; v += step) { const y = Y(v); g.beginPath(); g.moveTo(box.x, y + .5); g.lineTo(box.x + box.w, y + .5); g.stroke(); g.fillText(v + '倍', box.x - 5, y); }
+  g.textAlign = 'center'; g.textBaseline = 'top';
+  DS.forEach(v => g.fillText(v.toFixed(1), X(v), box.y + box.h + 5));
+  g.strokeStyle = css('--axis'); g.beginPath(); g.moveTo(box.x, box.y + box.h + .5); g.lineTo(box.x + box.w, box.y + box.h + .5); g.stroke();
+  g.fillStyle = css('--text-secondary'); g.textAlign = 'right'; g.fillText('自然口の直径 (mm)', box.x + box.w, box.y + box.h + 20);
+  g.textAlign = 'left'; g.textBaseline = 'bottom'; g.fillText('ハミングで鼻のNOが何倍になるか', 2, box.y - 2);
+  const pts = E2.map(p => ({ ...p, xv: p.d, yv: p.ratio }));
+  seriesLines(g, pts, X, Y, [0, 1], si => ['鋭い縁', '丸い縁'][si], { ...box, w: box.w + 70 });
+  const hit = dots(g, pts, X, Y, c2.hov);
+  if (hit) showTip(`<b>直径 ${hit.d} mm・${hit.rfmm ? '丸い縁' : '鋭い縁'}</b><br><span class="m">空気柱</span> ${hit.L0mm.toFixed(2)} mm（${hit.x.toFixed(2)}L）<br><span class="m">混合率</span> ${(hit.eta * 100).toFixed(0)}%<br><span class="m">鼻のNO</span> ${hit.ratio.toFixed(1)}倍`, c2.hov.cx, c2.hov.cy);
+  else if (c2.hov) tip.style.display = 'none';
+  $('t2').innerHTML = `<tr><th>直径</th><th>縁</th><th class="num">空気柱</th><th class="num">混合率（3D）</th><th class="num">これまでの式</th><th class="num">鼻のNO</th></tr>` +
+    E2.map(p => `<tr><td>${p.d.toFixed(1)} mm</td><td><span class="sw" style="background:var(${COLS[p.si]})"></span>${p.rfmm ? '丸い' : '鋭い'}</td><td class="num">${p.L0mm.toFixed(2)} mm</td><td class="num"><b>${(p.eta * 100).toFixed(0)}%</b>${p.onTarget ? '' : '*'}</td><td class="num">${(p.law * 100).toFixed(0)}%</td><td class="num"><b>${p.ratio.toFixed(1)}倍</b></td></tr>`).join('') +
+    (E2.some(p => !p.onTarget) ? `<tr><td colspan="6" class="note">* 目標の空気柱に届かなかったので、これまでの式の比で補正</td></tr>` : '');
+  if (E2.length === DS.length * RF2.length) {
+    const r = (si, d) => E2.find(p => p.si === si && p.d === d).ratio;
+    const sharp = r(0, 4.0) - r(0, 2.0), round = r(1, 4.0) - r(1, 2.0);
+    const trend = v => v > 0.3 ? '大きい穴ほどNOが増える（実験と同じ向き）' : v < -0.3 ? '小さい穴ほどNOが増える（実験と逆）' : 'ほぼ変わらない';
+    $('v2').innerHTML = `直径を2.0 mmから4.0 mmに広げると、鋭い縁では ${r(0, 2.0).toFixed(1)}倍 → ${r(0, 4.0).toFixed(1)}倍 で<b>${trend(sharp)}</b>。丸い縁では ${r(1, 2.0).toFixed(1)}倍 → ${r(1, 4.0).toFixed(1)}倍 で<b>${trend(round)}</b>。` +
+      (sharp < -0.3 && round > 0.3 ? ' 縁の丸みで向きが逆転し、実験と合うようになりました。' : sharp < -0.3 && round < -0.3 ? ' 縁を丸くしても向きは逆転しません。食い違いの原因は縁の形だけではなさそうです。' : '');
+  }
+}
+addEventListener('resize', () => { drawE1(); drawE2(); });
+
+// ---------------- view ----------------
+[['3D', 0], ['断面（水平）', 1], ['断面（縦）', 2]].forEach(([n, v]) => {
+  const b = document.createElement('button'); b.textContent = n; b.className = v === VIEW ? 'on' : '';
+  b.onclick = () => setView(v);
+  $('viewSeg').appendChild(b);
+});
+function setView(v) { VIEW = v; [...$('viewSeg').children].forEach((x, i) => x.classList.toggle('on', i === v)); viewLegend(); }
+function viewLegend() {
+  $('hint').style.display = VIEW === 0 ? '' : 'none';
+  $('viewLegend').innerHTML = VIEW === 0
+    ? `<span><span class="sw" style="background:#5ad0ff"></span>洞に入った鼻腔の空気</span><span><span class="sw" style="background:#ff8c42"></span>鼻腔側に出たNO</span><span><span class="sw" style="background:#fff"></span>自然口</span>`
+    : `明るいほどNOが濃い（洞の初期値＝1）・灰色＝骨と組織。断面は自然口の中心を通ります`;
+}
+viewLegend();
+
+// ---------------- boot ----------------
+(async () => {
+  try {
+    await loadP001();
+    $('status').textContent = 'GPUを準備しています…';
+    setGeometryPre();
+    await initGPU();
+    curKey = ''; setGeometry({ kind: 'ideal', d: 2.0, Lr: LR, rf: 0.4 });
+    window.__ready = true;
+    requestAnimationFrame(frame);
+    $('status').textContent = '検証1か検証2を実行してください。';
+    drawE1(); drawE2();
+    if (qs.has('autoE1')) $('bE1').click();
+    if (qs.has('autoE2')) $('bE2').click();
+    if (qs.has('autoC')) $('bC').click();
+  } catch (e) { showErr(e.message || String(e)); }
+})();
+function setGeometryPre() { makeIdeal(2.0, LR); buildFluid(2.0, 0.8); }
+})();
+</script>
+</body>
+</html>

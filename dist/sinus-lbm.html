@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>自然口の振動噴流 — LBMで混合効率を測る</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #e2e0da;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+    --grid: #ebe9e4; --axis: #b9b7b0;
+    --series-1: #2a78d6; --series-2: #eb6834;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-0: #111110; --surface-1: #1a1a19; --border: #2e2e2b;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+      --grid: #2a2a27; --axis: #55544f;
+      --series-1: #3987e5; --series-2: #d95926;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body.viz-root { background: var(--surface-0); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; line-height: 1.6;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  main { max-width: 980px; margin: 0 auto; padding: 18px 14px 40px; }
+  h1 { font-size: 21px; margin: 4px 0 2px; }
+  .lede { color: var(--text-secondary); font-size: 14px; margin: 0 0 14px; }
+  h2 { font-size: 15px; margin: 0 0 2px; }
+  .sub { color: var(--text-muted); font-size: 12px; margin: 0 0 8px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  .layout { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  @media (min-width: 820px) { .layout { grid-template-columns: 380px 1fr; align-items: start; } .layout .card { margin-bottom: 0; } .layout { margin-bottom: 12px; } }
+  .simwrap { position: relative; border-radius: 10px; overflow: hidden; background: #0b1020; }
+  #sim { display: block; width: 100%; }
+  .hud { position: absolute; left: 8px; top: 6px; font-size: 11px; color: #e8ecff; text-shadow: 0 1px 2px #000; line-height: 1.5; font-variant-numeric: tabular-nums; pointer-events: none; }
+  .lbl { position: absolute; font-size: 11px; color: #c9cfe6; text-shadow: 0 1px 2px #000; pointer-events: none; }
+  .ctl label { display: block; font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+  .ctl .row { display: flex; justify-content: space-between; gap: 8px; }
+  .ctl .row b { color: var(--text-primary); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .ctl input[type=range] { width: 100%; accent-color: var(--series-1); margin: 2px 0 2px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .btns button { font: inherit; font-size: 13px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-0); color: var(--text-primary); cursor: pointer; }
+  .btns button.pri { background: var(--series-1); border-color: var(--series-1); color: #fff; }
+  .btns button:disabled { opacity: .45; cursor: default; }
+  .chart { position: relative; width: 100%; }
+  .chart canvas { display: block; width: 100%; touch-action: pan-y; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-size: 12px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,.12); display: none; z-index: 5; font-variant-numeric: tabular-nums; }
+  .tip .m { color: var(--text-secondary); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-top: 6px; align-items: center; }
+  .sw { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .sw.dash { height: 0; border-top: 2px dashed var(--text-muted); border-radius: 0; vertical-align: 3px; }
+  .sw.dot { width: 10px; height: 10px; border-radius: 50%; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-muted); font-weight: 500; font-size: 11px; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .note { font-size: 12px; color: var(--text-secondary); }
+  .eq { font-size: 13px; color: var(--text-secondary); }
+  .eq code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--text-primary); }
+  .err { color: #d03b3b; font-size: 13px; white-space: pre-wrap; }
+  .verdict { font-size: 14px; margin: 8px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--surface-0); border: 1px solid var(--border); }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { font: inherit; font-size: 12px; padding: 4px 10px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+  .seg button.on { background: var(--series-1); color: #fff; }
+  .ramp { display: inline-block; width: 110px; height: 9px; border-radius: 2px; vertical-align: -1px; margin: 0 6px; }
+</style>
+</head>
+<body class="viz-root">
+<main>
+  <h1>自然口の振動噴流を流体計算する</h1>
+  <p class="lede">集中定数モデルで最も根拠の弱かった仮定「流れ込んだ空気のうち、副鼻腔に混ざって戻らない割合 η」を、格子ボルツマン法（LBM）で直接測ります。WebGPUのコンピュートシェーダーで、断面の流れとNOの濃度を同時に解きます。</p>
+
+  <div class="layout">
+    <section class="card">
+      <div class="simwrap" id="simwrap">
+        <canvas id="sim"></canvas>
+        <div class="hud" id="hud">準備中…</div>
+        <div class="lbl" id="lblNose">鼻腔（呼気 →）</div>
+        <div class="lbl" id="lblOst">自然口</div>
+        <div class="lbl" id="lblSin">上顎洞</div>
+      </div>
+      <div class="legend" id="fieldLegend"></div>
+      <div style="margin-top:8px"><span class="seg" id="modeSeg"></span></div>
+      <div class="err" id="err"></div>
+    </section>
+
+    <section class="card ctl">
+      <h2>実験条件</h2>
+      <p class="sub">1周期に流れ込む空気柱の長さ L₀ を、自然口の直径 d で割った値が主な変数です</p>
+      <div id="ctl"></div>
+      <div class="btns">
+        <button class="pri" id="bRun">この条件で1回測る</button>
+        <button id="bSweep">スイープ（L₀/d = 1〜8）</button>
+        <button id="bStop">停止</button>
+      </div>
+      <p class="note" id="status" style="margin-top:10px">—</p>
+      <table id="cycTable" style="margin-top:6px"></table>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>混合率 η と L₀/d：仮定と測定</h2>
+    <p class="sub">破線＝集中定数モデルの仮定 η = 1 − exp(−(L₀/d)/κ)、κ=2。点＝LBMの測定値（4〜6周期目の平均。現在の L/d 以外の点は薄く表示）。点線＝流入する空気柱が自然口の長さと等しくなる位置</p>
+    <div class="chart" id="cEta"></div>
+    <div class="legend">
+      <span><span class="sw dash"></span>仮定（κ=2）</span>
+      <span><span class="sw dot" style="background:var(--series-1)"></span>LBM測定</span>
+      <span><span class="sw" style="background:var(--series-2);height:2px;vertical-align:3px"></span>死腔モデルの当てはめ（現在の L/d）</span>
+    </div>
+    <p class="verdict" id="fitText">スイープを実行すると、ここに当てはめ結果が出ます。</p>
+  </section>
+
+  <section class="card">
+    <h2>測定したηを集中定数モデルに戻すと</h2>
+    <p class="sub">文献の実験モデル条件（容積15 mL、200 Hz、音圧100 Pa）で、自然口の径ごとの換気量を再計算。実験ではNO出力が径とともに単調に増加</p>
+    <div style="margin-bottom:6px"><span class="note">自然口の長さ</span> <span class="seg" id="lSeg"></span></div>
+    <div class="chart" id="cOst"></div>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--series-1)"></span>仮定のη（κ=2）</span>
+      <span><span class="sw" style="background:var(--series-2)"></span>LBMの測定に基づくη（死腔モデル）</span>
+    </div>
+    <p class="verdict" id="ostText">LBMの測定点が3つ以上そろうと計算します。</p>
+  </section>
+
+  <section class="card">
+    <h2>計算の中身と限界</h2>
+    <div class="eq">
+      <p><b>流れ</b>　D2Q9格子ボルツマン法（BGK＋Smagorinsky乱流モデル）。上の水平な流路が鼻腔で、左から呼気が流れ込み右へ抜けます。下の空洞が上顎洞、間の細い首が自然口です。</p>
+      <p><b>準備</b>　各測定の前に、振動させずに流れだけを数千ステップ回して、鼻腔と副鼻腔の圧力差による一方向の流れ込みが収まるのを待ちます。その後、NOの濃度分布と時計をリセットしてから振動を始めます。</p>
+      <p><b>振動の駆動</b>　実際の副鼻腔では、空気が圧縮・膨張することで自然口を空気が出入りします。どれだけ出入りするかは集中定数モデル（共鳴）が決めるので、ここでは出入りの量を与えて、混ざり方だけを調べます。自然口の中に振動する体積力をかけて空気を往復させ、副鼻腔に入った（出た）のと同じ量を、空洞全体から一様に吸い込み（湧き出させ）ます。圧縮は空洞全体で一様に起きるので、これが圧縮・膨張の再現になります。格子の音速は実物よりずっと遅いため、空洞の圧縮性をそのまま解くと格子固有の共鳴が混入してしまい、この分離が必要でした。自然口を通る流量は毎ステップ実測し、目標の L₀/d に合うよう振幅を周期ごとに自動調整します。また、正味の一方向の流れ（実際の閉じた空洞では起こりえない）が生じないよう、1周期平均の流量をゼロに保つ制御をかけています。</p>
+      <p><b>NO</b>　副鼻腔側の初期濃度を1、鼻腔側を0として、流れに乗せて運びます（2次精度のMacCormack型セミラグランジュ法＋拡散）。各周期の終わりに副鼻腔（空洞部分）のNO総量を測り、<code>η = V·(1 − C_k/C_{k−1}) / V_in</code> で混合率を出します。自然口内の濃度は、純粋な拡散だけのときの定常分布（直線）で始め、最初の3周期は振動流に合わせて分布が落ち着くまでの助走として除外します。</p>
+      <p><b>無次元数</b>　レイノルズ数 Re = u_peak·d/ν は可変（実際の値は数百〜1000程度）。周期あたりの流入量で L₀/d を決め、ピーク流速は格子上で0.08に固定しています。そのため、振動の速さを表すウォマスリー数は実物（約9）より小さめになります。</p>
+      <p><b>限界</b>　2次元なので、噴流は円形の穴ではなくスリットから出る形になります（3次元の渦輪とは崩れ方が違う）。数値拡散も残るため、ηは過大評価の方向に寄ります。結果は「傾向をつかむための計算実験」として見てください。</p>
+    </div>
+    <p class="note">換気の物理を調べるためのモデルで、診断や治療効果を示すものではありません。</p>
+  </section>
+</main>
+<div class="tip" id="tip"></div>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
+const showErr = m => { $('err').textContent += m + '\n'; };
+
+// ---------------- geometry (lattice units) ----------------
+const SCALE = Math.max(0.4, Math.min(2, parseFloat(qs.get('s')) || 1));
+const D = Math.round(20 * SCALE);               // ostium width (cells)
+const NX = Math.round(12.8 * D), NY = Math.round(16 * D);
+const HC = Math.round(2.4 * D);                 // channel height
+const MARGIN = Math.max(4, Math.round(0.4 * D));
+const N = NX * NY;
+const CX0 = Math.round(NX / 2 - D / 2), CX1 = CX0 + D;
+const FLOOR0 = HC + 1;
+const UPEAK = 0.08;
+const CYCLES = Math.max(4, parseInt(qs.get('cycles')) || 6);
+const MEAS_FROM = 3;                            // 0-based: cycles 0..2 are run-in
+const SCALAR_EVERY = 4;
+const FIX = 10000;
+
+// mask: low byte = type (0 fluid, 1 solid, 2 inlet, 3 outlet); 256 = sinus cavity (sink); 512 = sinus cavity (measured)
+const mask = new Uint32Array(N);
+let LN = 0, SIN0 = 0, NECKROW = 0, sinusCells = 0, sideCells = 0, geomLnD = -1;
+function buildGeometry(lnd) {
+  LN = Math.max(2, Math.round(lnd * D));
+  SIN0 = FLOOR0 + LN; NECKROW = FLOOR0 + Math.round(LN / 2);
+  sinusCells = 0; sideCells = 0;
+  for (let y = 0; y < NY; y++) for (let x = 0; x < NX; x++) {
+    const i = y * NX + x; let m = 1;
+    if (y >= 1 && y <= HC) { m = 0; if (x === 0) m = 2; else if (x === NX - 1) m = 3; }
+    else if (y >= FLOOR0 && y < SIN0) { if (x >= CX0 && x < CX1) m = 0; }
+    else if (y >= SIN0 && y < NY - 1 && x >= MARGIN && x < NX - MARGIN) { m = 256 | 512; }
+    mask[i] = m;
+    if (m & 256) sinusCells++;
+    if (m & 512) sideCells++;
+  }
+  geomLnD = lnd;
+  if (window.__gpuReady) { device.queue.writeBuffer(maskBuf, 0, mask); layoutSim(); }
+}
+buildGeometry(2.5);
+
+// ---------------- params ----------------
+const P = { L0d: 2, LnD: 2.5, Re: 300, chRatio: 0.15 };
+let LUMP_L = 8;
+const CTL = [
+  { k: 'L0d', lab: 'L₀/d（1周期の流入長さ／直径）', min: Math.log10(0.3), max: Math.log10(10), step: 0.01, log: true, fmt: v => v.toFixed(2) },
+  { k: 'LnD', lab: '自然口の長さ／直径 L/d（実物は約3）', min: 0.5, max: 4, step: 0.1, fmt: v => v.toFixed(1) },
+  { k: 'Re', lab: 'レイノルズ数 Re', min: 50, max: 600, step: 10, fmt: v => v.toFixed(0) },
+  { k: 'chRatio', lab: '鼻腔の呼気流速 ／ 自然口のピーク流速', min: 0, max: 0.5, step: 0.01, fmt: v => v.toFixed(2) },
+];
+const inputs = {};
+for (const c of CTL) {
+  const w = document.createElement('label');
+  w.innerHTML = `<span class="row"><span>${c.lab}</span><b data-v></b></span><input type="range" min="${c.min}" max="${c.max}" step="${c.step}" value="${c.log ? Math.log10(P[c.k]) : P[c.k]}">`;
+  const inp = w.querySelector('input'), out = w.querySelector('[data-v]');
+  const sync = () => out.textContent = c.fmt(P[c.k]);
+  inp.addEventListener('input', () => { P[c.k] = c.log ? 10 ** +inp.value : +inp.value; sync(); if (c.k === 'LnD' && typeof drawCharts === 'function' && window.__chartsReady) drawCharts(); });
+  sync(); $('ctl').appendChild(w); inputs[c.k] = { inp, sync, c };
+}
+function setParam(k, v) { P[k] = v; const { inp, sync, c } = inputs[k]; inp.value = c.log ? Math.log10(v) : v; sync(); }
+
+let MODE = 0;
+[['NO濃度', 0], ['渦度', 1]].forEach(([n, m]) => {
+  const b = document.createElement('button'); b.textContent = n; b.className = m === 0 ? 'on' : '';
+  b.onclick = () => { MODE = m; [...$('modeSeg').children].forEach(x => x.classList.toggle('on', x === b)); legendField(); };
+  $('modeSeg').appendChild(b);
+});
+[['8 mm（漏斗部）', 8], ['2 mm（短い穴）', 2]].forEach(([n, l]) => {
+  const b = document.createElement('button'); b.textContent = n; b.className = l === LUMP_L ? 'on' : '';
+  b.onclick = () => { LUMP_L = l; [...$('lSeg').children].forEach(x => x.classList.toggle('on', x === b)); drawCharts(); };
+  $('lSeg').appendChild(b);
+});
+function legendField() {
+  const L = $('fieldLegend');
+  L.innerHTML = MODE === 0
+    ? `NO濃度 0<span class="ramp" style="background:linear-gradient(90deg,#0b1020,#3b1f5e,#b13f64,#f08a4b,#fde6a0)"></span>1（副鼻腔の初期値）`
+    : `渦度 時計回り<span class="ramp" style="background:linear-gradient(90deg,#3987e5,#1a1d26,#e34948)"></span>反時計回り`;
+}
+legendField();
+
+// ---------------- WGSL ----------------
+const HDR = /* wgsl */`
+struct U {
+  nx: u32, ny: u32, n: u32, mode: u32,
+  tau0: f32, cs: f32, uin: f32, invSin: f32,
+  omega: f32, dc: f32, dtc: f32, sgn: f32,
+  nx0: u32, nx1: u32, nrow: u32, T: u32,
+  F0: f32, y0: u32, y1: u32, pad: u32,
+  kp: f32, ki: f32, pad2: f32, pad3: f32,
+};
+@group(0) @binding(0) var<uniform> u: U;
+`;
+const COLLIDE = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> fin: array<f32>;
+@group(0) @binding(2) var<storage, read_write> fout: array<f32>;
+@group(0) @binding(3) var<storage, read> mask: array<u32>;
+@group(0) @binding(4) var<storage, read_write> vel: array<vec2f>;
+@group(0) @binding(5) var<storage, read> ctr: array<u32>;
+@group(0) @binding(6) var<storage, read> stats: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let idx = gid.x;
+  if (idx >= u.n) { return; }
+  let m = mask[idx];
+  let typ = m & 255u;
+  if (typ == 1u) { return; }
+  var EX = array<i32, 9>(0, 1, 0, -1, 0, 1, -1, -1, 1);
+  var EY = array<i32, 9>(0, 0, 1, 0, -1, 1, 1, -1, -1);
+  var W = array<f32, 9>(4.0/9.0, 1.0/9.0, 1.0/9.0, 1.0/9.0, 1.0/9.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0);
+  var OPP = array<u32, 9>(0u, 3u, 4u, 1u, 2u, 7u, 8u, 5u, 6u);
+  let x = i32(idx % u.nx);
+  let y = i32(idx / u.nx);
+  let nxi = i32(u.nx);
+  let nyi = i32(u.ny);
+  var f: array<f32, 9>;
+  var rho = 0.0;
+  var mx = 0.0;
+  var my = 0.0;
+  for (var i = 0u; i < 9u; i++) {
+    let sx = x - EX[i];
+    let sy = y - EY[i];
+    var wall = sx < 0 || sy < 0 || sx >= nxi || sy >= nyi;
+    var sidx = 0u;
+    if (!wall) {
+      sidx = u32(sy) * u.nx + u32(sx);
+      wall = (mask[sidx] & 255u) == 1u;
+    }
+    var v: f32;
+    if (wall) { v = fin[OPP[i] * u.n + idx]; } else { v = fin[i * u.n + sidx]; }
+    f[i] = v;
+    rho += v;
+    mx += v * f32(EX[i]);
+    my += v * f32(EY[i]);
+  }
+  rho = max(rho, 0.2);
+  var ux = mx / rho;
+  var uy = my / rho;
+  if (typ == 2u) { rho = 1.0; ux = u.uin; uy = 0.0; }
+  if (typ == 3u) { rho = 1.0; }
+  let usq = ux * ux + uy * uy;
+  var fe: array<f32, 9>;
+  var pxx = 0.0;
+  var pyy = 0.0;
+  var pxy = 0.0;
+  for (var i = 0u; i < 9u; i++) {
+    let ex = f32(EX[i]);
+    let ey = f32(EY[i]);
+    let eu = ex * ux + ey * uy;
+    fe[i] = W[i] * rho * (1.0 + 3.0 * eu + 4.5 * eu * eu - 1.5 * usq);
+    let fneq = f[i] - fe[i];
+    pxx += ex * ex * fneq;
+    pyy += ey * ey * fneq;
+    pxy += ex * ey * fneq;
+  }
+  let pim = sqrt(pxx * pxx + pyy * pyy + 2.0 * pxy * pxy);
+  let tau = 0.5 * (u.tau0 + sqrt(u.tau0 * u.tau0 + 18.0 * 1.41421356 * u.cs * u.cs * pim / rho));
+  // cavity: remove (or add) exactly the mass that crossed the neck last step -> uniform compression
+  var keep = 1.0;
+  if ((m & 256u) != 0u) { keep = 1.0 - stats[2] * u.invSin / rho; }
+  // neck: oscillating body force (velocity-shift forcing)
+  var fy = 0.0;
+  if (u32(x) >= u.nx0 && u32(x) < u.nx1 && u32(y) >= u.y0 && u32(y) < u.y1) {
+    let t = f32(ctr[0]);
+    let ramp = min(1.0, t / f32(u.T));
+    fy = u.F0 * ramp * cos(u.omega * t) + stats[5];
+  }
+  var fs: array<f32, 9>;
+  if (fy != 0.0) {
+    let uy2 = uy + tau * fy;
+    let usq2 = ux * ux + uy2 * uy2;
+    for (var i = 0u; i < 9u; i++) {
+      let eu = f32(EX[i]) * ux + f32(EY[i]) * uy2;
+      fs[i] = W[i] * rho * (1.0 + 3.0 * eu + 4.5 * eu * eu - 1.5 * usq2);
+    }
+  } else {
+    fs = fe;
+  }
+  for (var i = 0u; i < 9u; i++) {
+    var o: f32;
+    if (typ == 2u || typ == 3u) { o = fe[i]; } else { o = f[i] - (f[i] - fs[i]) / tau; }
+    fout[i * u.n + idx] = o * keep;
+  }
+  vel[idx] = vec2f(ux, uy);
+}
+`;
+const FLUX = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> vel: array<vec2f>;
+@group(0) @binding(2) var<storage, read_write> ctr: array<u32>;
+@group(0) @binding(3) var<storage, read_write> stats: array<f32>;
+@group(0) @binding(4) var<storage, read_write> ring: array<f32>;
+var<workgroup> acc: array<f32, 64>;
+@compute @workgroup_size(64)
+fn main(@builtin(local_invocation_index) li: u32) {
+  var s = 0.0;
+  var x = u.nx0 + li;
+  loop {
+    if (x >= u.nx1) { break; }
+    s += vel[u.nrow * u.nx + x].y;
+    x += 64u;
+  }
+  acc[li] = s;
+  workgroupBarrier();
+  for (var st = 32u; st > 0u; st = st >> 1u) {
+    if (li < st) { acc[li] += acc[li + st]; }
+    workgroupBarrier();
+  }
+  if (li == 0u) {
+    let q = acc[0];
+    stats[0] += max(q, 0.0);
+    stats[1] += max(-q, 0.0);
+    stats[2] = q;
+    // cycle-mean flow via a one-period moving average, then a PI controller that cancels any net (DC) flow
+    let slot = ctr[0] % u.T;
+    let sum = stats[3] + q - ring[slot];
+    ring[slot] = q;
+    stats[3] = sum;
+    let qbar = sum / f32(u.T);
+    stats[4] += qbar;
+    stats[5] = -u.kp * qbar - u.ki * stats[4];
+    ctr[0] += 1u;
+  }
+}
+`;
+const SAMPLER = (buf) => /* wgsl */`
+fn samp(p: vec2f, own: u32) -> vec3f {
+  let pc = clamp(p, vec2f(0.0), vec2f(f32(u.nx) - 1.001, f32(u.ny) - 1.001));
+  let b = floor(pc);
+  let t = pc - b;
+  let x0 = u32(b.x);
+  let y0 = u32(b.y);
+  let i00 = y0 * u.nx + x0;
+  let i10 = i00 + 1u;
+  let i01 = i00 + u.nx;
+  let i11 = i01 + 1u;
+  var ws = vec4f((1.0 - t.x) * (1.0 - t.y), t.x * (1.0 - t.y), (1.0 - t.x) * t.y, t.x * t.y);
+  if ((mask[i00] & 255u) == 1u) { ws.x = 0.0; }
+  if ((mask[i10] & 255u) == 1u) { ws.y = 0.0; }
+  if ((mask[i01] & 255u) == 1u) { ws.z = 0.0; }
+  if ((mask[i11] & 255u) == 1u) { ws.w = 0.0; }
+  let sw = ws.x + ws.y + ws.z + ws.w;
+  if (sw < 1e-6) { let v = ${buf}[own]; return vec3f(v, v, v); }
+  let v = vec4f(${buf}[i00], ${buf}[i10], ${buf}[i01], ${buf}[i11]);
+  let val = dot(ws, v) / sw;
+  var lo = 1e9;
+  var hi = -1e9;
+  if (ws.x > 0.0) { lo = min(lo, v.x); hi = max(hi, v.x); }
+  if (ws.y > 0.0) { lo = min(lo, v.y); hi = max(hi, v.y); }
+  if (ws.z > 0.0) { lo = min(lo, v.z); hi = max(hi, v.z); }
+  if (ws.w > 0.0) { lo = min(lo, v.w); hi = max(hi, v.w); }
+  return vec3f(val, lo, hi);
+}
+`;
+const ADV1 = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> cin: array<f32>;
+@group(0) @binding(2) var<storage, read_write> cout: array<f32>;
+@group(0) @binding(3) var<storage, read> vel: array<vec2f>;
+@group(0) @binding(4) var<storage, read> mask: array<u32>;
+` + SAMPLER('cin') + /* wgsl */`
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= u.n) { return; }
+  if ((mask[i] & 255u) == 1u) { cout[i] = 0.0; return; }
+  let p = vec2f(f32(i % u.nx), f32(i / u.nx));
+  cout[i] = samp(p - vel[i] * u.dtc * u.sgn, i).x;
+}
+`;
+// sgn: +1 backward trace, -1 forward trace
+const ADV3 = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> c0: array<f32>;
+@group(0) @binding(2) var<storage, read> c1: array<f32>;
+@group(0) @binding(3) var<storage, read_write> c2: array<f32>;
+@group(0) @binding(4) var<storage, read> vel: array<vec2f>;
+@group(0) @binding(5) var<storage, read> mask: array<u32>;
+` + SAMPLER('c0') + /* wgsl */`
+fn nb(i: u32, j: i32, own: f32) -> f32 {
+  let k = u32(i32(i) + j);
+  if ((mask[k] & 255u) == 1u) { return own; }
+  return c0[k];
+}
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= u.n) { return; }
+  let typ = mask[i] & 255u;
+  if (typ == 1u || typ == 2u) { c2[i] = 0.0; return; }
+  let x = i % u.nx;
+  let y = i / u.nx;
+  let p = vec2f(f32(x), f32(y));
+  let s = samp(p - vel[i] * u.dtc, i);
+  var cn = c1[i] + 0.5 * (c0[i] - c2[i]);
+  cn = clamp(cn, s.y, s.z);
+  if (x > 0u && x < u.nx - 1u && y > 0u && y < u.ny - 1u) {
+    let own = c0[i];
+    let lap = nb(i, 1, own) + nb(i, -1, own) + nb(i, i32(u.nx), own) + nb(i, -i32(u.nx), own) - 4.0 * own;
+    cn += u.dc * u.dtc * lap;
+  }
+  c2[i] = clamp(cn, 0.0, 1.0);
+}
+`;
+const SUM = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> c: array<f32>;
+@group(0) @binding(2) var<storage, read> mask: array<u32>;
+@group(0) @binding(3) var<storage, read_write> csum: array<atomic<u32>>;
+var<workgroup> acc: array<u32, 64>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) li: u32) {
+  var v = 0u;
+  if (gid.x < u.n) {
+    if ((mask[gid.x] & 512u) != 0u) { v = u32(round(clamp(c[gid.x], 0.0, 1.0) * ${FIX}.0)); }
+  }
+  acc[li] = v;
+  workgroupBarrier();
+  for (var st = 32u; st > 0u; st = st >> 1u) {
+    if (li < st) { acc[li] += acc[li + st]; }
+    workgroupBarrier();
+  }
+  if (li == 0u) { atomicAdd(&csum[0], acc[0]); }
+}
+`;
+const RENDER = HDR + /* wgsl */`
+@group(0) @binding(1) var<storage, read> c: array<f32>;
+@group(0) @binding(2) var<storage, read> vel: array<vec2f>;
+@group(0) @binding(3) var<storage, read> mask: array<u32>;
+struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+@vertex
+fn vs(@builtin(vertex_index) vi: u32) -> VO {
+  var P = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  var o: VO;
+  o.pos = vec4f(P[vi], 0.0, 1.0);
+  o.uv = vec2f((P[vi].x + 1.0) * 0.5, (1.0 - P[vi].y) * 0.5);
+  return o;
+}
+fn ramp(t: f32) -> vec3f {
+  let s0 = vec3f(0.043, 0.063, 0.125);
+  let s1 = vec3f(0.231, 0.122, 0.369);
+  let s2 = vec3f(0.694, 0.247, 0.392);
+  let s3 = vec3f(0.941, 0.541, 0.294);
+  let s4 = vec3f(0.992, 0.902, 0.627);
+  let x = clamp(t, 0.0, 1.0) * 4.0;
+  if (x < 1.0) { return mix(s0, s1, x); }
+  if (x < 2.0) { return mix(s1, s2, x - 1.0); }
+  if (x < 3.0) { return mix(s2, s3, x - 2.0); }
+  return mix(s3, s4, x - 3.0);
+}
+@fragment
+fn fs(i: VO) -> @location(0) vec4f {
+  let cx = min(u32(i.uv.x * f32(u.nx)), u.nx - 1u);
+  let cy = min(u32(i.uv.y * f32(u.ny)), u.ny - 1u);
+  let k = cy * u.nx + cx;
+  let typ = mask[k] & 255u;
+  if (typ == 1u) {
+    let h = f32((cx / 3u + cy / 3u) % 2u) * 0.015;
+    return vec4f(0.20 + h, 0.21 + h, 0.24 + h, 1.0);
+  }
+  if (u.mode == 0u) {
+    return vec4f(ramp(sqrt(c[k])), 1.0);
+  }
+  var w = 0.0;
+  if (cx > 0u && cx < u.nx - 1u && cy > 0u && cy < u.ny - 1u) {
+    w = (vel[k + 1u].y - vel[k - 1u].y) * 0.5 - (vel[k + u.nx].x - vel[k - u.nx].x) * 0.5;
+  }
+  let t = clamp(w / 0.012, -1.0, 1.0);
+  let base = vec3f(0.10, 0.11, 0.15);
+  if (t > 0.0) { return vec4f(mix(base, vec3f(0.89, 0.29, 0.28), t), 1.0); }
+  return vec4f(mix(base, vec3f(0.22, 0.53, 0.90), -t), 1.0);
+}
+`;
+
+// ---------------- GPU setup ----------------
+let device, ctx, format;
+let pCol, pFlux, pAdv1, pAdv3, pSum, pRen;
+let ringBuf, fA, fB, maskBuf, velBuf, ctrBuf, statsBuf, csumBuf, cBufs = [], uBuf, uBufFwd;
+let bgCol = [], bgFlux, bgAdv1 = [], bgAdv2 = [], bgAdv3 = [], bgSum = [], bgRen = [];
+const uData = new ArrayBuffer(96), uF = new Float32Array(uData), uU = new Uint32Array(uData);
+
+async function checkShader(m, name) {
+  if (!m.getCompilationInfo) return;
+  const info = await m.getCompilationInfo();
+  for (const x of info.messages) if (x.type === 'error') throw new Error(`${name} ${x.lineNum}:${x.linePos} ${x.message}`);
+}
+async function init() {
+  if (!navigator.gpu) throw new Error('このブラウザはWebGPUに対応していません（Chrome / Edge / Safari 26以降でお試しください）。');
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+  if (!adapter) throw new Error('GPUアダプタを取得できませんでした。');
+  device = await adapter.requestDevice();
+  device.lost.then(i => showErr('GPUデバイスが失われました: ' + i.message));
+  let errN = 0;
+  device.addEventListener('uncapturederror', e => { if (errN++ < 3) showErr('WebGPUエラー: ' + e.error.message); });
+  const canvas = $('sim');
+  ctx = canvas.getContext('webgpu');
+  format = navigator.gpu.getPreferredCanvasFormat();
+  ctx.configure({ device, format, alphaMode: 'opaque' });
+
+  const mk = async (code, name) => { const m = device.createShaderModule({ code, label: name }); await checkShader(m, name); return m; };
+  const [mCol, mFlux, mAdv1, mAdv3, mSum, mRen] = await Promise.all([
+    mk(COLLIDE, 'collide'), mk(FLUX, 'flux'), mk(ADV1, 'adv1'), mk(ADV3, 'adv3'), mk(SUM, 'sum'), mk(RENDER, 'render')]);
+  const cp = m => device.createComputePipeline({ layout: 'auto', compute: { module: m, entryPoint: 'main' } });
+  pCol = cp(mCol); pFlux = cp(mFlux); pAdv1 = cp(mAdv1); pAdv3 = cp(mAdv3); pSum = cp(mSum);
+  pRen = device.createRenderPipeline({ layout: 'auto', vertex: { module: mRen, entryPoint: 'vs' },
+    fragment: { module: mRen, entryPoint: 'fs', targets: [{ format }] }, primitive: { topology: 'triangle-list' } });
+
+  const SB = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
+  fA = device.createBuffer({ size: 9 * N * 4, usage: SB });
+  fB = device.createBuffer({ size: 9 * N * 4, usage: SB });
+  maskBuf = device.createBuffer({ size: N * 4, usage: SB });
+  velBuf = device.createBuffer({ size: N * 8, usage: SB });
+  ctrBuf = device.createBuffer({ size: 16, usage: SB });
+  statsBuf = device.createBuffer({ size: 32, usage: SB });
+  ringBuf = device.createBuffer({ size: 4 * 16384, usage: SB });
+  csumBuf = device.createBuffer({ size: 16, usage: SB });
+  for (let k = 0; k < 3; k++) cBufs.push(device.createBuffer({ size: N * 4, usage: SB }));
+  uBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  uBufFwd = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  device.queue.writeBuffer(maskBuf, 0, mask);
+  window.__gpuReady = true;
+
+  const B = (p, list) => device.createBindGroup({ layout: p.getBindGroupLayout(0), entries: list.map((b, i) => ({ binding: i, resource: { buffer: b } })) });
+  bgCol = [B(pCol, [uBuf, fA, fB, maskBuf, velBuf, ctrBuf, statsBuf]), B(pCol, [uBuf, fB, fA, maskBuf, velBuf, ctrBuf, statsBuf])];
+  bgFlux = B(pFlux, [uBuf, velBuf, ctrBuf, statsBuf, ringBuf]);
+  for (let k = 0; k < 3; k++) {
+    const c0 = cBufs[k], c1 = cBufs[(k + 1) % 3], c2 = cBufs[(k + 2) % 3];
+    bgAdv1.push(B(pAdv1, [uBuf, c0, c1, velBuf, maskBuf]));
+    bgAdv2.push(B(pAdv1, [uBufFwd, c1, c2, velBuf, maskBuf]));
+    bgAdv3.push(B(pAdv3, [uBuf, c0, c1, c2, velBuf, maskBuf]));
+    bgSum.push(B(pSum, [uBuf, c0, maskBuf, csumBuf]));
+    bgRen.push(B(pRen, [uBuf, c0, velBuf, maskBuf]));
+  }
+}
+
+// ---------------- run state ----------------
+const R = { F0: 0, warm: 0, warmDone: false, running: false, cur: 0, ck: 0, gstep: 0, stepInCycle: 0, cycle: 0, T: 1000, omega: 0, Q0: 0, target: 0,
+  Cprev: 0, results: [], pending: 0, onDone: null, runId: 0 };
+const measured = [];   // {L0d, eta, Re, ch}
+
+function writeUniform() {
+  const nu = UPEAK * D / P.Re;
+  uU[0] = NX; uU[1] = NY; uU[2] = N; uU[3] = MODE;
+  uF[4] = 3 * nu + 0.5; uF[5] = 0.14; uF[6] = P.chRatio * UPEAK; uF[7] = 1 / sinusCells;
+  uF[8] = R.omega; uF[9] = nu / 0.8; uF[10] = SCALAR_EVERY; uF[11] = 1;
+  uU[12] = CX0; uU[13] = CX1; uU[14] = NECKROW; uU[15] = R.T;
+  uF[16] = R.warm > 0 ? 0 : R.F0; uU[17] = FLOOR0; uU[18] = SIN0; uU[19] = 0;
+  const wc = 2 * Math.PI / (4 * R.T);
+  uF[20] = R.warm > 0 ? 0 : 2 * 0.8 * wc / D; uF[21] = R.warm > 0 ? 0 : wc * wc / D; uF[22] = 0; uF[23] = 0;
+  device.queue.writeBuffer(uBuf, 0, uData);
+  uF[11] = -1;
+  device.queue.writeBuffer(uBufFwd, 0, uData);
+}
+
+function resetFields() {
+  const f = new Float32Array(9 * N);
+  const W = [4 / 9, 1 / 9, 1 / 9, 1 / 9, 1 / 9, 1 / 36, 1 / 36, 1 / 36, 1 / 36];
+  const EX = [0, 1, 0, -1, 0, 1, -1, -1, 1], EY = [0, 0, 1, 0, -1, 1, 1, -1, -1];
+  const uin = P.chRatio * UPEAK;
+  const c = new Float32Array(N);
+  for (let idx = 0; idx < N; idx++) {
+    const m = mask[idx], typ = m & 255;
+    if (typ === 1) continue;
+    const y = (idx / NX) | 0;
+    const ux = (y >= 1 && y <= HC) ? uin : 0;
+    for (let i = 0; i < 9; i++) {
+      const eu = EX[i] * ux;
+      f[i * N + idx] = W[i] * (1 + 3 * eu + 4.5 * eu * eu - 1.5 * ux * ux);
+    }
+    const yy = (idx / NX) | 0;
+    if (m & 512) c[idx] = 1;
+    else if (yy >= FLOOR0 && yy < SIN0) c[idx] = (yy - FLOOR0 + 0.5) / LN;   // steady diffusion profile in the neck
+  }
+  device.queue.writeBuffer(fA, 0, f);
+  device.queue.writeBuffer(fB, 0, f);
+  for (const b of cBufs) device.queue.writeBuffer(b, 0, c);
+  device.queue.writeBuffer(ctrBuf, 0, new Uint32Array(4));
+  device.queue.writeBuffer(statsBuf, 0, new Float32Array(8));
+  device.queue.writeBuffer(velBuf, 0, new Float32Array(N * 2));
+  R.cur = 0; R.ck = 0; R.gstep = 0;
+}
+
+function resetScalar() {
+  const c = new Float32Array(N);
+  for (let idx = 0; idx < N; idx++) {
+    const m = mask[idx], yy = (idx / NX) | 0;
+    if ((m & 255) === 1) continue;
+    if (m & 512) c[idx] = 1;
+    else if (yy >= FLOOR0 && yy < SIN0) c[idx] = (yy - FLOOR0 + 0.5) / LN;
+  }
+  for (const b of cBufs) device.queue.writeBuffer(b, 0, c);
+  device.queue.writeBuffer(ctrBuf, 0, new Uint32Array(4));
+  device.queue.writeBuffer(statsBuf, 0, new Float32Array(8));
+  device.queue.writeBuffer(ringBuf, 0, new Float32Array(16384));
+  R.ck = 0;
+}
+function startRun(L0d, onDone) {
+  R.runId++;
+  if (Math.abs(P.LnD - geomLnD) > 1e-9) buildGeometry(P.LnD);
+  R.target = L0d * D * D;                 // inflow area per cycle (cells^2)
+  const L0 = L0d * D;
+  R.T = Math.min(16000, Math.max(200, Math.round(Math.PI * L0 / UPEAK)));
+  R.omega = 2 * Math.PI / R.T;
+  R.F0 = UPEAK * R.omega * 1.5;            // initial guess: inertia-dominated neck
+  R.cycle = 0; R.stepInCycle = 0; R.results = []; R.Cprev = sideCells; R.pending = 0; R.onDone = onDone;
+  R.L0dTarget = L0d;
+  R.warm = Math.round(6000 * SCALE); R.warmDone = false;
+  resetFields();
+  writeUniform();
+  R.running = true;
+  R.t0 = performance.now(); R.stepsDone = 0;
+  renderTable();
+}
+
+function encodeSteps(enc, n) {
+  const pass = enc.beginComputePass();
+  const wg = Math.ceil(N / 64);
+  for (let s = 0; s < n; s++) {
+    pass.setPipeline(pCol); pass.setBindGroup(0, bgCol[R.cur]); pass.dispatchWorkgroups(wg);
+    pass.setPipeline(pFlux); pass.setBindGroup(0, bgFlux); pass.dispatchWorkgroups(1);
+    R.cur ^= 1; R.gstep++;
+    if (R.gstep % SCALAR_EVERY === 0) {
+      pass.setPipeline(pAdv1);
+      pass.setBindGroup(0, bgAdv1[R.ck]); pass.dispatchWorkgroups(wg);
+      pass.setBindGroup(0, bgAdv2[R.ck]); pass.dispatchWorkgroups(wg);
+      pass.setPipeline(pAdv3); pass.setBindGroup(0, bgAdv3[R.ck]); pass.dispatchWorkgroups(wg);
+      R.ck = (R.ck + 2) % 3;
+    }
+  }
+  pass.end();
+}
+
+function encodeCycleEnd(enc, cycle) {
+  enc.clearBuffer(csumBuf);
+  const pass = enc.beginComputePass();
+  pass.setPipeline(pSum); pass.setBindGroup(0, bgSum[R.ck]); pass.dispatchWorkgroups(Math.ceil(N / 64));
+  pass.end();
+  const rb = device.createBuffer({ size: 32, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  enc.copyBufferToBuffer(statsBuf, 0, rb, 0, 16);
+  enc.copyBufferToBuffer(csumBuf, 0, rb, 16, 16);
+  enc.clearBuffer(statsBuf, 0, 8);
+  const runId = R.runId;
+  R.pending++;
+  return () => rb.mapAsync(GPUMapMode.READ).then(() => {
+    const ab = rb.getMappedRange();
+    const st = new Float32Array(ab.slice(0, 16)), cs = new Uint32Array(ab.slice(16, 32));
+    rb.unmap(); rb.destroy();
+    if (runId !== R.runId) return;
+    R.pending--;
+    onCycle(cycle, st[0], st[1], cs[0] / FIX);
+  });
+}
+
+function onCycle(k, inflow, outflow, C) {
+  const Vex = sideCells * (1 - C / R.Cprev);
+  const eta = inflow > 0 ? Vex / inflow : NaN;
+  const L0d = inflow / (D * D);
+  R.results.push({ k, inflow, outflow, C, L0d, eta });
+  R.Cprev = C;
+  if (!isFinite(C) || !isFinite(inflow)) { showErr('計算が発散しました。Reを下げてください。'); R.running = false; }
+  // amplitude feedback toward target inflow
+  if (inflow > 1e-6) {
+    const g = Math.max(0.5, Math.min(2, R.target / inflow));
+    R.F0 *= Math.pow(g, 0.8);
+    R.F0 = Math.min(R.F0, 5e-3);
+    writeUniform();
+  }
+  renderTable();
+  if (k === CYCLES - 1) finishRun();
+}
+
+function finishRun() {
+  const use = R.results.filter(r => r.k >= MEAS_FROM && isFinite(r.eta));
+  if (use.length) {
+    const eta = use.reduce((a, r) => a + r.eta, 0) / use.length;
+    const L0d = use.reduce((a, r) => a + r.L0d, 0) / use.length;
+    measured.push({ L0d, eta: Math.max(0, Math.min(1.2, eta)), Re: P.Re, ch: P.chRatio, lnd: LN / D });
+    measured.sort((a, b) => a.L0d - b.L0d);
+    updateResults();
+  }
+  const cb = R.onDone; R.onDone = null;
+  if (cb) cb();
+  else setStatus(`完了：L₀/d = ${use.length ? (use.reduce((a, r) => a + r.L0d, 0) / use.length).toFixed(2) : '-'} で η を測定しました。`);
+}
+
+function setStatus(t) { $('status').textContent = t; }
+function renderTable() {
+  const rows = R.results.map(r => `<tr><td>${r.k + 1}${r.k >= MEAS_FROM ? '' : '（助走）'}</td><td class="num">${r.L0d.toFixed(2)}</td><td class="num">${isFinite(r.eta) ? (r.eta * 100).toFixed(0) + '%' : '-'}</td><td class="num">${(r.C / sideCells * 100).toFixed(1)}%</td></tr>`).join('');
+  $('cycTable').innerHTML = `<tr><th>周期</th><th style="text-align:right">L₀/d 実測</th><th style="text-align:right">η</th><th style="text-align:right">副鼻腔NO残存</th></tr>` + rows;
+}
+
+// ---------------- sweep ----------------
+const SWEEP = [1, 2, 4, 8];
+let sweepIdx = -1;
+function runSweep() {
+  sweepIdx = 0;
+  const next = () => {
+    if (sweepIdx < 0) return;
+    if (sweepIdx >= SWEEP.length) { sweepIdx = -1; setStatus('スイープ完了。下のグラフに結果が出ています。'); enableButtons(true); return; }
+    const v = SWEEP[sweepIdx++];
+    setParam('L0d', v);
+    setStatus(`スイープ中 ${sweepIdx}/${SWEEP.length}：L₀/d = ${v}`);
+    startRun(v, next);
+  };
+  enableButtons(false);
+  next();
+}
+function enableButtons(on) { $('bRun').disabled = !on; $('bSweep').disabled = !on; }
+$('bRun').onclick = () => { if (!device) return; enableButtons(false); setStatus(`実行中：L₀/d = ${P.L0d.toFixed(2)}、Re = ${P.Re}`); startRun(P.L0d, () => { enableButtons(true); setStatus('完了しました。'); }); };
+$('bSweep').onclick = () => { if (!device) return; runSweep(); };
+$('bStop').onclick = () => { R.running = false; R.runId++; sweepIdx = -1; enableButtons(true); setStatus('停止しました。'); };
+
+// ---------------- main loop ----------------
+let spf = 120, lastT = 0, sps = 0, spsAcc = 0, spsT = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dtF = lastT ? now - lastT : 16; lastT = now;
+  if (R.running) {
+    if (dtF > 24) spf = Math.max(10, spf * 0.85); else if (dtF < 19) spf = Math.min(1500, spf * 1.08);
+  }
+  const enc = device.createCommandEncoder();
+  const after = [];
+  if (R.running && R.warmDone) {
+    // warm-up finished last frame: restart scalar, clock and stats from a settled flow
+    R.warmDone = false;
+    resetScalar();
+    writeUniform();
+  }
+  if (R.running && R.warm > 0) {
+    const n = Math.min(Math.round(spf), R.warm);
+    encodeSteps(enc, n); R.warm -= n; spsAcc += n;
+    if (R.warm <= 0) R.warmDone = true;
+  } else if (R.running) {
+    let budget = Math.round(spf);
+    while (budget > 0 && R.running) {
+      const n = Math.min(budget, R.T - R.stepInCycle);
+      encodeSteps(enc, n);
+      budget -= n; R.stepInCycle += n; spsAcc += n;
+      if (R.stepInCycle >= R.T) {
+        after.push(encodeCycleEnd(enc, R.cycle));
+        R.cycle++; R.stepInCycle = 0;
+        if (R.cycle >= CYCLES) R.running = false;
+      }
+    }
+  }
+  uU[3] = MODE; device.queue.writeBuffer(uBuf, 12, new Uint32Array([MODE]));
+  const rp = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
+  rp.setPipeline(pRen); rp.setBindGroup(0, bgRen[R.ck]); rp.draw(3); rp.end();
+  device.queue.submit([enc.finish()]);
+  after.forEach(fn => fn());
+  if (now - spsT > 500) { sps = spsAcc / ((now - spsT) / 1000); spsAcc = 0; spsT = now; }
+  const cyc = R.running && (R.warm > 0 || R.warmDone) ? '準備中（流れを落ち着かせています）' : R.running || R.cycle > 0 ? `周期 ${Math.min(R.cycle + 1, CYCLES)}/${CYCLES}・位相 ${(R.stepInCycle / R.T * 360).toFixed(0)}°` : '待機中';
+  $('hud').innerHTML = `${cyc}<br>${Math.round(sps).toLocaleString()} ステップ/秒・格子 ${NX}×${NY}`;
+}
+
+// ---------------- layout ----------------
+function layoutSim() {
+  const wrap = $('simwrap'), cv = $('sim');
+  const w = wrap.clientWidth, h = Math.round(w * NY / NX);
+  cv.style.height = h + 'px';
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const s = w / NX;
+  const place = (id, x, y) => { const e = $(id); e.style.left = x * s + 'px'; e.style.top = y * s + 'px'; };
+  place('lblNose', 6, HC * 0.62);
+  place('lblOst', CX1 + 4, FLOOR0 + LN * 0.35);
+  place('lblSin', MARGIN + 6, NY - 0.12 * NY);
+  $('hud').style.top = (HC + 2) * s + 'px';
+  $('hud').style.left = (MARGIN + 6) * s + 'px';
+  $('hud').style.top = (SIN0 + 6) * s + 'px';
+}
+addEventListener('resize', () => { layoutSim(); drawCharts(); });
+
+// ---------------- charts ----------------
+const css = n => getComputedStyle(document.body).getPropertyValue(n).trim();
+const tip = $('tip');
+function makeChart(id, aspect, minH) {
+  const host = $(id); const cv = document.createElement('canvas'); host.appendChild(cv);
+  const ch = { host, cv, ctx: cv.getContext('2d'), aspect, minH, hover: null };
+  cv.addEventListener('pointermove', e => { const r = cv.getBoundingClientRect(); ch.hover = { x: e.clientX - r.left, y: e.clientY - r.top, cx: e.clientX, cy: e.clientY }; drawCharts(); });
+  cv.addEventListener('pointerleave', () => { ch.hover = null; tip.style.display = 'none'; drawCharts(); });
+  return ch;
+}
+function sizeChart(ch) {
+  const w = ch.host.clientWidth, h = Math.max(ch.minH, Math.round(w * ch.aspect)), dpr = Math.min(devicePixelRatio || 1, 2);
+  ch.cv.width = Math.round(w * dpr); ch.cv.height = Math.round(h * dpr); ch.cv.style.height = h + 'px';
+  ch.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ch.w = w; ch.h = h; return ch.ctx;
+}
+function showTip(html, cx, cy) {
+  tip.innerHTML = html; tip.style.display = 'block';
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let x = cx + 12 + scrollX, y = cy - th - 10 + scrollY;
+  if (x + tw > scrollX + innerWidth - 6) x = cx - tw - 12 + scrollX;
+  if (y < scrollY + 4) y = cy + 14 + scrollY;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+const cEta = makeChart('cEta', 0.5, 220), cOst = makeChart('cOst', 0.36, 190);
+window.__chartsReady = true;
+
+const etaAssumed = (x, kappa = 2) => 1 - Math.exp(-x / kappa);
+// "dead volume" model: only the part of the stroke that goes beyond the neck mixes
+const etaDV = (x, lnd, a, m) => m * Math.max(0, 1 - a * lnd / x);
+function fitDV() {
+  if (measured.length < 3) return null;
+  let best = null;
+  for (let a = 0.2; a <= 2.0001; a += 0.01) for (let m = 0.2; m <= 1.2001; m += 0.01) {
+    const e = measured.reduce((acc, p) => acc + (etaDV(p.L0d, p.lnd, a, m) - p.eta) ** 2, 0);
+    if (!best || e < best.e) best = { a, m, e };
+  }
+  best.rmse = Math.sqrt(best.e / measured.length);
+  const ek = measured.reduce((acc, p) => acc + (etaAssumed(p.L0d) - p.eta) ** 2, 0);
+  best.rmseAssumed = Math.sqrt(ek / measured.length);
+  return best;
+}
+// lumped model (same as the previous page)
+const RHO = 1.14, C0 = 350, MU = 1.9e-5;
+function lumped(d, etaFn, V = 15, Lmm = 8, f = 200, P0 = 100, K = 1.5) {
+  const r = d / 2e3, A = Math.PI * r * r, L = Lmm / 1e3, Le = L + 1.7 * r, Vm = V * 1e-6, w = 2 * Math.PI * f;
+  const M = RHO * Le / A, C = Vm / (RHO * C0 * C0), X = w * M - 1 / (w * C);
+  const Rl = Math.max(8 * MU * L / (Math.PI * r ** 4), (L / (Math.PI * r ** 3)) * Math.sqrt(2 * RHO * MU * w)) + RHO * w * w / (2 * Math.PI * C0);
+  const k = (8 / (3 * Math.PI)) * K * RHO / (2 * A * A);
+  let lo = 0, hi = P0 / Math.sqrt(Rl * Rl + X * X);
+  for (let i = 0; i < 60; i++) { const q = (lo + hi) / 2; if (q * Math.sqrt((Rl + k * q) ** 2 + X * X) > P0) hi = q; else lo = q; }
+  const Vin = 2 * lo / w, L0d = Vin / A / (d / 1e3);
+  const eta = etaFn(L0d);
+  const f0 = C0 / (2 * Math.PI) * Math.sqrt(A / (Vm * Le));
+  return { Qex: eta * Vin * f * 1e6, L0d, eta, f0 };
+}
+
+function drawEta() {
+  const ch = cEta, ctx = sizeChart(ch);
+  ctx.clearRect(0, 0, ch.w, ch.h);
+  const box = { x: 40, y: 16, w: ch.w - 52, h: ch.h - 16 - 38 };
+  const lx0 = Math.log10(0.25), lx1 = Math.log10(12);
+  const X = v => box.x + (Math.log10(v) - lx0) / (lx1 - lx0) * box.w;
+  const Y = v => box.y + box.h - v / 1.05 * box.h;
+  ctx.font = '11px system-ui, sans-serif';
+  ctx.strokeStyle = css('--grid'); ctx.fillStyle = css('--text-muted'); ctx.lineWidth = 1;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) { const y = Y(v); ctx.beginPath(); ctx.moveTo(box.x, y + .5); ctx.lineTo(box.x + box.w, y + .5); ctx.stroke(); ctx.fillText((v * 100) + '%', box.x - 5, y); }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (const v of [0.25, 0.5, 1, 2, 4, 8]) ctx.fillText(v, X(v), box.y + box.h + 5);
+  ctx.strokeStyle = css('--axis'); ctx.beginPath(); ctx.moveTo(box.x, box.y + box.h + .5); ctx.lineTo(box.x + box.w, box.y + box.h + .5); ctx.stroke();
+  ctx.fillStyle = css('--text-secondary'); ctx.textAlign = 'right'; ctx.fillText('L₀/d（対数軸）', box.x + box.w, box.y + box.h + 20);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText('混合率 η', 2, box.y - 2);
+  const curve = (fn, color, dash, width) => {
+    ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash); ctx.beginPath();
+    for (let i = 0; i <= 160; i++) { const lv = lx0 + i / 160 * (lx1 - lx0), v = 10 ** lv; const y = Y(fn(v)); i ? ctx.lineTo(X(v), y) : ctx.moveTo(X(v), y); }
+    ctx.stroke(); ctx.restore();
+  };
+  curve(v => etaAssumed(v, 2), css('--text-muted'), [5, 4], 1.5);
+  const fit = fitDV();
+  if (fit) curve(v => etaDV(v, P.LnD, fit.a, fit.m), css('--series-2'), [], 2);
+  // neck-length marker
+  const xl = X(P.LnD);
+  ctx.save(); ctx.strokeStyle = css('--axis'); ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(xl + .5, box.y); ctx.lineTo(xl + .5, box.y + box.h); ctx.stroke(); ctx.restore();
+  ctx.fillStyle = css('--text-muted'); ctx.textBaseline = 'top';
+  const lt = 'L₀ = 自然口の長さ', ltw = ctx.measureText(lt).width;
+  if (xl + 4 + ltw > box.x + box.w) { ctx.textAlign = 'right'; ctx.fillText(lt, xl - 4, box.y + 2); } else { ctx.textAlign = 'left'; ctx.fillText(lt, xl + 4, box.y + 2); }
+  let hi = null;
+  measured.forEach(m => {
+    const x = X(m.L0d), y = Y(m.eta);
+    if (ch.hover && Math.hypot(ch.hover.x - x, ch.hover.y - y) < 14) hi = m;
+    ctx.fillStyle = css('--series-1'); ctx.strokeStyle = css('--surface-1'); ctx.lineWidth = 2;
+    ctx.globalAlpha = Math.abs(m.lnd - P.LnD) < 0.06 ? 1 : 0.4;
+    ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.globalAlpha = 1;
+  });
+  if (hi) showTip(`<b>L₀/d = ${hi.L0d.toFixed(2)}</b>（L/d = ${hi.lnd.toFixed(1)}）<br><span class="m">η（LBM）</span> ${(hi.eta * 100).toFixed(0)}%<br><span class="m">仮定（κ=2）</span> ${(etaAssumed(hi.L0d) * 100).toFixed(0)}%` + (fit ? `<br><span class="m">死腔モデル</span> ${(etaDV(hi.L0d, hi.lnd, fit.a, fit.m) * 100).toFixed(0)}%` : '') + `<br><span class="m">Re ${hi.Re}・呼気流速比 ${hi.ch}</span>`, ch.hover.cx, ch.hover.cy);
+  else if (ch.hover) tip.style.display = 'none';
+  if (fit) {
+    $('fitText').innerHTML = `測定点 ${measured.length} 個に「死腔モデル」<code>η = m·max(0, 1 − a·L/L₀)</code> を当てはめると <b>a = ${fit.a.toFixed(2)}、m = ${fit.m.toFixed(2)}</b>（RMS誤差 ${(fit.rmse * 100).toFixed(0)}ポイント）。` +
+      `元の仮定（κ=2）の誤差は ${(fit.rmseAssumed * 100).toFixed(0)}ポイントです。` +
+      (fit.rmse < fit.rmseAssumed * 0.7 ? ' 混合率を決めているのは L₀/d よりも、<b>流入する空気柱が自然口の長さを超えるかどうか</b>だと読めます。空気柱が自然口の中で往復するだけなら、ほとんど換気されません。' : ' 死腔モデルでも大きくは改善しません。') +
+      (measured.every(p => Math.abs(p.lnd - measured[0].lnd) < 0.06) ? ` 全点が L/d = ${measured[0].lnd.toFixed(1)} の測定なので、「自然口の長さに比例する」という部分は、L/d を変えてもう一度スイープすると検証できます。` : '');
+  } else if (measured.length) {
+    $('fitText').textContent = `測定点 ${measured.length} 個。3個以上で当てはめます（スイープ推奨）。`;
+  }
+}
+function drawOst() {
+  const ch = cOst, ctx = sizeChart(ch);
+  ctx.clearRect(0, 0, ch.w, ch.h);
+  const DS = [0.8, 1.29, 1.9, 2.1, 4.0];
+  const fit = fitDV();
+  const a = DS.map(d => lumped(d, v => etaAssumed(v, 2), 15, LUMP_L));
+  const b = fit ? DS.map(d => lumped(d, v => etaDV(v, LUMP_L / d, fit.a, fit.m), 15, LUMP_L)) : null;
+  const box = { x: 40, y: 16, w: ch.w - 52, h: ch.h - 16 - 36 };
+  const ymax = Math.max(...a.map(o => o.Qex), ...(b ? b.map(o => o.Qex) : [0])) * 1.18 || 1;
+  const Y = v => box.y + box.h - v / ymax * box.h;
+  ctx.font = '11px system-ui, sans-serif';
+  ctx.strokeStyle = css('--grid'); ctx.fillStyle = css('--text-muted'); ctx.lineWidth = 1; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  const step = ymax > 8 ? 4 : ymax > 4 ? 2 : ymax > 2 ? 1 : 0.5;
+  for (let v = 0; v <= ymax; v += step) { const y = Y(v); ctx.beginPath(); ctx.moveTo(box.x, y + .5); ctx.lineTo(box.x + box.w, y + .5); ctx.stroke(); ctx.fillText(v, box.x - 5, y); }
+  ctx.fillStyle = css('--text-secondary'); ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText('換気量 (mL/s)', 2, box.y - 2);
+  const slot = box.w / DS.length, bw = Math.min(26, slot * 0.3);
+  let hiI = -1; if (ch.hover) { const i = Math.floor((ch.hover.x - box.x) / slot); if (i >= 0 && i < DS.length) hiI = i; }
+  const bar = (x, v, color) => { const y = Y(v), h = box.y + box.h - y, r = Math.min(4, h); ctx.fillStyle = color;
+    ctx.beginPath(); ctx.moveTo(x, box.y + box.h); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.lineTo(x + bw - r, y); ctx.quadraticCurveTo(x + bw, y, x + bw, y + r); ctx.lineTo(x + bw, box.y + box.h); ctx.fill(); };
+  DS.forEach((d, i) => {
+    const cx = box.x + slot * (i + .5);
+    ctx.globalAlpha = hiI === -1 || hiI === i ? 1 : .45;
+    if (b) { bar(cx - bw - 1, a[i].Qex, css('--series-1')); bar(cx + 1, b[i].Qex, css('--series-2')); }
+    else bar(cx - bw / 2, a[i].Qex, css('--series-1'));
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = css('--text-muted'); ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(d + ' mm', cx, box.y + box.h + 5);
+  });
+  ctx.strokeStyle = css('--axis'); ctx.beginPath(); ctx.moveTo(box.x, box.y + box.h + .5); ctx.lineTo(box.x + box.w, box.y + box.h + .5); ctx.stroke();
+  if (hiI >= 0) {
+    const d = DS[hiI];
+    showTip(`<b>直径 ${d} mm</b>（L₀ = ${(a[hiI].L0d * d).toFixed(1)} mm、自然口の長さ ${LUMP_L} mm）<br><span class="m">仮定のη</span> ${(a[hiI].eta * 100).toFixed(0)}% → ${a[hiI].Qex.toFixed(2)} mL/s` +
+      (b ? `<br><span class="m">死腔モデルのη</span> ${(b[hiI].eta * 100).toFixed(0)}% → ${b[hiI].Qex.toFixed(2)} mL/s` : ''), ch.hover.cx, ch.hover.cy);
+  }
+  if (b) {
+    const mono = arr => arr.every((o, i) => i === 0 || o.Qex >= arr[i - 1].Qex * 0.98);
+    const peakB = DS[b.reduce((bi, o, i) => o.Qex > b[bi].Qex ? i : bi, 0)];
+    const sumA = a.reduce((t, o) => t + o.Qex, 0), sumB = b.reduce((t, o) => t + o.Qex, 0);
+    const big = a[4];
+    $('ostText').innerHTML =
+      `測定に基づくηを使うと、換気量は仮定のときの<b>約${(sumB / sumA * 100).toFixed(0)}%</b>になります（自然口の長さ ${LUMP_L} mm）。` +
+      (mono(b)
+        ? ' さらに換気量は径とともに<b>単調に増加</b>し、実験の傾向と一致します。'
+        : ` ただし最大は <b>${peakB} mm</b> のままで、<b>径の傾向の不一致は残ります</b>。4.0 mm では共鳴周波数が ${big.f0.toFixed(0)} Hz と200 Hzよりずっと高く、そもそも出入りする空気柱が L₀ = ${(big.L0d * 4).toFixed(1)} mm と短いためです。` +
+          ' つまり不一致の原因は「混ざり方」ではなく「どれだけ出入りするか」（共鳴と駆動の扱い）の側にあります。実験装置では音圧ではなく流量に近い形で駆動されていた、壁が柔らかかった、などの可能性が考えられます。');
+  }
+}
+function drawCharts() { drawEta(); drawOst(); }
+window.__lbm = { measured, drawCharts };
+function updateResults() { drawCharts(); }
+
+// ---------------- boot ----------------
+layoutSim();
+drawCharts();
+init().then(() => {
+  layoutSim();
+  // idle frame shows initial condition
+  resetFields(); R.F0 = 0; R.omega = 2 * Math.PI / 1000; writeUniform();
+  requestAnimationFrame(frame);
+  setStatus('「この条件で1回測る」か「スイープ」を押してください。スイープは4条件×6周期で、端末によって1〜数分かかります。');
+  if (qs.has('lnd')) setParam('LnD', +qs.get('lnd'));
+  if (qs.has('autorun')) { const v = parseFloat(qs.get('autorun')); setParam('L0d', v); $('bRun').click(); }
+  if (qs.has('autosweep')) runSweep();
+}).catch(e => showErr(e.message || String(e)));
+})();
+</script>
+</body>
+</html>

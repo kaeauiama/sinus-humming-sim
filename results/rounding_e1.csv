@@ -1,0 +1,13 @@
+# Experiment 1 of dist/verify-rounding.html, run by Kaz on a PC GPU on 2026-11-21 after the cycle-sync fix (reproducible across repeats).
+# Idealized geometry: sphere cavity (Rc=3.2d) + cylindrical ostium d (DC=10 cells), length L=0.8d, nasal channel; Re=300; 150 Hz-equivalent drive.
+# rf = fillet radius at both ostium ends (fraction of d). x = L0/L (stroke / ostium length). eta = exchanged volume / inflow volume per cycle.
+rf_over_d,x_target,x_achieved,eta_3d,eta_softlaw
+0,1,1.03,0.11,0.17
+0,2,1.83,0.35,0.36
+0,4,4.17,0.55,0.58
+0.2,1,1.06,0.15,0.18
+0.2,2,1.81,0.36,0.36
+0.2,4,4.21,0.54,0.58
+0.4,1,1.06,0.21,0.18
+0.4,2,1.84,0.38,0.36
+0.4,4,4.26,0.54,0.58

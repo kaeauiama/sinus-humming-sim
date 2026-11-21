@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ハミングと副鼻腔換気 — 集中定数モデル</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #e2e0da;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+    --grid: #ebe9e4; --axis: #b9b7b0;
+    --series-1: #2a78d6; --series-2: #eb6834;
+    --band: rgba(42,120,214,.08);
+    --seq-0: #f0f4fa; --seq-1: #cde2fb; --seq-2: #9ec5f4; --seq-3: #6da7ec; --seq-4: #3987e5; --seq-5: #256abf; --seq-6: #184f95; --seq-7: #0d366b;
+    --good: #0b7a0b; --warn: #a3590b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-0: #111110; --surface-1: #1a1a19; --border: #2e2e2b;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+      --grid: #2a2a27; --axis: #55544f;
+      --series-1: #3987e5; --series-2: #d95926;
+      --band: rgba(57,135,229,.12);
+      --seq-0: #1d2633; --seq-1: #104281; --seq-2: #184f95; --seq-3: #1c5cab; --seq-4: #2a78d6; --seq-5: #5598e7; --seq-6: #86b6ef; --seq-7: #cde2fb;
+      --good: #3fbf3f; --warn: #f0a050;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body.viz-root { background: var(--surface-0); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; line-height: 1.6;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  main { max-width: 980px; margin: 0 auto; padding: 18px 14px 40px; }
+  h1 { font-size: 21px; margin: 4px 0 2px; letter-spacing: .01em; }
+  .lede { color: var(--text-secondary); font-size: 14px; margin: 0 0 14px; }
+  h2 { font-size: 15px; margin: 0 0 2px; }
+  .sub { color: var(--text-muted); font-size: 12px; margin: 0 0 8px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  @media (min-width: 820px) { .grid2 { grid-template-columns: 1fr 1fr; } .grid2 .card { margin-bottom: 0; } .grid2 { margin-bottom: 12px; } }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .presets button { font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface-0); color: var(--text-primary); cursor: pointer; }
+  .presets button.on { border-color: var(--series-1); color: var(--series-1); }
+  .ctl { display: grid; grid-template-columns: 1fr; gap: 6px 18px; }
+  @media (min-width: 640px) { .ctl { grid-template-columns: 1fr 1fr; } }
+  .ctl label { display: block; font-size: 12px; color: var(--text-secondary); }
+  .ctl .row { display: flex; justify-content: space-between; gap: 8px; }
+  .ctl .row b { color: var(--text-primary); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .ctl input[type=range] { width: 100%; accent-color: var(--series-1); margin: 2px 0 4px; }
+  details { margin-top: 8px; font-size: 12px; color: var(--text-secondary); }
+  details summary { cursor: pointer; padding: 4px 0; }
+  .kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  @media (min-width: 640px) { .kpis { grid-template-columns: repeat(4, 1fr); } }
+  .kpi { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+  .kpi .l { font-size: 11px; color: var(--text-muted); }
+  .kpi .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.25; }
+  .kpi .v small { font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-left: 2px; }
+  .kpi .n { font-size: 11px; color: var(--text-secondary); }
+  .chart { position: relative; width: 100%; }
+  .chart canvas { display: block; width: 100%; touch-action: pan-y; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 8px; font-size: 12px; color: var(--text-primary); white-space: nowrap;
+    box-shadow: 0 4px 14px rgba(0,0,0,.12); display: none; z-index: 2; font-variant-numeric: tabular-nums; }
+  .tip .m { color: var(--text-secondary); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-top: 6px; align-items: center; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .ramp { display: inline-block; width: 120px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+  .tag.ok { color: var(--good); } .tag.ng { color: var(--warn); }
+  .eq { font-size: 13px; color: var(--text-secondary); }
+  .eq code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--text-primary); }
+  .note { font-size: 12px; color: var(--text-secondary); }
+  .src { font-size: 12px; color: var(--text-secondary); padding-left: 18px; margin: 6px 0 0; }
+  .src a { color: var(--series-1); }
+  .sticky { position: sticky; top: 0; z-index: 5; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-left: 6px; }
+  .seg button { font: inherit; font-size: 11px; padding: 3px 8px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+  .seg button.on { background: var(--series-1); color: #fff; }
+</style>
+</head>
+<body class="viz-root">
+<main>
+  <h1>ハミングと副鼻腔換気</h1>
+  <p class="lede">上顎洞を「ヘルムホルツ共鳴器」（空洞＋細い首）とみなした集中定数モデルです。自然口の太さとハミングの高さで、副鼻腔の空気がどれだけ速く入れ替わるかを計算します。</p>
+
+  <section class="card">
+    <div class="presets" id="presets"></div>
+    <div class="ctl" id="ctl"></div>
+    <details>
+      <summary>仮定パラメータ（文献値や推定値。結果を大きく左右します）</summary>
+      <div class="ctl" id="ctl2" style="margin-top:6px"></div>
+    </details>
+  </section>
+
+  <section class="kpis" id="kpis" style="margin-bottom:12px"></section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>周波数応答：ハミングの高さと換気量</h2>
+      <p class="sub">縦線＝現在のハミング周波数、破線＝共鳴周波数 f₀、帯＝一般的なハミングの高さ（100〜250 Hz）</p>
+      <div class="chart" id="cFreq"></div>
+    </section>
+    <section class="card">
+      <h2>自然口の直径 × 周波数：5秒で入れ替わる割合</h2>
+      <p class="sub">白線＝共鳴周波数 f₀、白丸＝現在の設定。凡例の右側の色ほど速く換気される</p>
+      <div class="chart" id="cHeat"></div>
+      <div class="legend">0%<span class="ramp" id="rampSw"></span>100%</div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>鼻から出るNO濃度の時間変化
+      <span class="seg" id="gapSeg"></span></h2>
+    <p class="sub">最初の5秒は静かに吐く→3秒吸う→「5秒ハミング＋休止」を5回。グラフの切れ目は吸気中です</p>
+    <div class="chart" id="cNO"></div>
+    <h2 style="margin-top:12px">副鼻腔内のNO濃度</h2>
+    <p class="sub">ハミングで洗い出されて下がり、休止中に産生で回復します</p>
+    <div class="chart" id="cCs"></div>
+  </section>
+
+  <section class="card">
+    <h2>文献との照合</h2>
+    <p class="sub">モデルが実測の傾向を再現できているかの確認。不一致はモデルの弱点を示します</p>
+    <table id="cmp"></table>
+    <h2 style="margin-top:14px">自然口の径を変えたときの換気量（200 Hz、副鼻腔15 mL）</h2>
+    <p class="sub">文献の実験モデルと同じ径。実験ではNO出力が径とともに増加</p>
+    <div class="chart" id="cOst"></div>
+  </section>
+
+  <section class="card">
+    <h2>モデルの中身</h2>
+    <div class="eq">
+      <p><b>1. 共鳴器</b>　自然口内の空気の質量と、副鼻腔内の空気のばね性で振動します。<br>
+      <code>M = ρ·L_eff / A</code>（イナータンス）、<code>C = V / (ρc²)</code>（コンプライアンス）、<code>f₀ = (c/2π)·√(A / (V·L_eff))</code>、<code>L_eff = L + 1.7r</code>（開口端補正）</p>
+      <p><b>2. 損失</b>　粘性抵抗（低周波ではポアズイユ、高周波では境界層）と、噴流による非線形損失 <code>Δp = Kρu|u|/2</code>。非線形項は記述関数（振幅 Q に対し <code>8KρQ/(3πA²)·(1/2)</code>）で等価線形化し、振幅を自己無撞着に解きます。</p>
+      <p><b>3. 換気</b>　1周期に流入する体積 <code>V_in = 2Q/ω</code>。そのうち副鼻腔に混ざって戻らない割合 <code>η = 1 − exp(−(L₀/d)/κ)</code>（L₀＝流入する空気柱の長さ）。換気量 <code>Q_ex = η·V_in·f</code>。<b>この η が最も根拠の弱い仮定</b>で、本来は流体計算（LBMなど）で求めるべき部分です。</p>
+      <p><b>4. NO</b>　副鼻腔NOは産生で平衡濃度に回復し（時定数 τ_rec）、換気で洗い出されます。鼻から出る濃度は、呼気流量 F と換気量の混合で決まります：<code>C_out = (F·C_mucosa + Q·C_sinus) / (F + Q)</code>。</p>
+    </div>
+    <p class="note" style="margin-top:10px">このモデルは換気の物理的な仕組みを見るためのもので、診断や治療効果の根拠にはなりません。ハミングが副鼻腔炎を予防・改善するかは、研究者自身も対照試験での検証が必要としています。</p>
+    <h2 style="margin-top:12px">参照した文献</h2>
+    <ol class="src">
+      <li><a href="https://pubmed.ncbi.nlm.nih.gov/12119224/">Weitzberg &amp; Lundberg (2002) Humming greatly increases nasal nitric oxide. Am J Respir Crit Care Med</a> — 鼻NOが15倍</li>
+      <li><a href="https://pubmed.ncbi.nlm.nih.gov/12952268/">Maniscalco et al. (2003) Eur Respir J 22:323</a> — 自然口の径が最重要、周波数も影響。安静時の全交換は約30分</li>
+      <li><a href="https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/7270638">US Patent 7,270,638（同グループの2区画モデル実験）</a> — 15 mL、1.9 mm、200 Hz、NO 8 ppm、0.2 L/s、径0.8〜4.0 mmでNO出力増加</li>
+      <li><a href="https://researchportal.vub.be/en/publications/temporal-nitric-oxide-dynamics-in-the-paranasal-sinuses-during-hu/">Menzel et al. (2005) J Appl Physiol 98:2064</a> — 反復ハミングでピーク低下、回復の時定数 4.5±3.2 分</li>
+      <li><a href="https://brevets-patents.ic.gc.ca/opic-cipo/cpd/eng/patent/2793684/summary.html">CA 2793684</a> — 上顎洞の容積 4〜35 cm³（平均12）</li>
+      <li>自然口の径：平均2.4 mm（<a href="https://koreascience.kr/article/JAKO202127948124917.pdf">Korea Science</a>）、1.42±0.62 mm（<a href="https://ajol.info/index.php/njcp/article/view/257940/243616">NJCP 2023</a>）。漏斗部の長さ約8 mm（<a href="https://journals.sbmu.ac.ir/dentistry/article/download/46792/34263/242633">CBCT研究</a>）</li>
+    </ol>
+  </section>
+</main>
+<div class="tip" id="tip"></div>
+
+<script>
+(() => {
+'use strict';
+// ---------------- physics ----------------
+const RHO = 1.14, C0 = 350, MU = 1.9e-5;   // humid air near body temperature
+
+const DEF = { V: 12, d: 2.4, L: 8, f: 150, P0: 100, K: 1.5, kappa: 2, tauQ: 30, tauR: 4.5, Css: 8000, F: 0.2, Cm: 20 };
+const P = { ...DEF };
+
+function solve(p, f, d = p.d, V = p.V) {
+  const r = d / 2e3, A = Math.PI * r * r, L = p.L / 1e3, Le = L + 1.7 * r, Vm = V * 1e-6, w = 2 * Math.PI * f;
+  const M = RHO * Le / A, C = Vm / (RHO * C0 * C0), X = w * M - 1 / (w * C);
+  const Rpois = 8 * MU * L / (Math.PI * r ** 4);
+  const Rbl = (L / (Math.PI * r ** 3)) * Math.sqrt(2 * RHO * MU * w);
+  const Rrad = RHO * w * w / (2 * Math.PI * C0);
+  const Rl = Math.max(Rpois, Rbl) + Rrad;
+  const k = (8 / (3 * Math.PI)) * p.K * RHO / (2 * A * A);
+  let lo = 0, hi = p.P0 / Math.sqrt(Rl * Rl + X * X);
+  for (let i = 0; i < 60; i++) {
+    const q = (lo + hi) / 2;
+    if (q * Math.sqrt((Rl + k * q) ** 2 + X * X) > p.P0) hi = q; else lo = q;
+  }
+  const q = lo, Vin = 2 * q / w, L0 = Vin / A, eta = 1 - Math.exp(-(L0 / (d / 1e3)) / p.kappa);
+  const Qex = eta * Vin * f;                       // m^3/s
+  const f0 = C0 / (2 * Math.PI) * Math.sqrt(A / (Vm * Le));
+  const Qf = Math.sqrt(M / C) / (Rl + k * q);
+  return { f0, q, Vin, L0d: L0 / (d / 1e3), eta, Qex, tau: Vm / Math.max(Qex, 1e-15), Qf };
+}
+const frac5 = (Qex, V) => 1 - Math.exp(-5 * Qex / (V * 1e-6));
+
+function simNO(p, gap) {
+  const s = solve(p, p.f);
+  const V = p.V * 1e-6, F = p.F * 1e-3, Qq = V / (p.tauQ * 60), tauR = p.tauR * 60;
+  const prot = [['quiet', 5], ['pause', 3]];
+  for (let i = 0; i < 5; i++) { prot.push(['hum', 5]); if (i < 4) prot.push(['pause', gap]); }
+  const dt = 0.02, out = [];
+  let Cs = p.Css, t = 0;
+  for (const [type, dur] of prot) {
+    const n = Math.round(dur / dt);
+    for (let i = 0; i < n; i++) {
+      const Q = Qq + (type === 'hum' ? s.Qex : 0);
+      let Cn;
+      if (type === 'pause') Cn = 0; else Cn = (F * p.Cm + Q * Cs) / (F + Q);
+      Cs += dt * ((p.Css - Cs) / tauR - Q / V * (Cs - Cn));
+      if (i % 5 === 0) out.push({ t, type, Cn: type === 'pause' ? null : Cn, Cs });
+      t += dt;
+    }
+  }
+  return { pts: out, s };
+}
+
+// ---------------- controls ----------------
+const CTL = [
+  { k: 'd', lab: '自然口の直径', unit: 'mm', min: 0.3, max: 5, step: 0.05, fmt: v => v.toFixed(2) },
+  { k: 'f', lab: 'ハミングの高さ', unit: 'Hz', min: 60, max: 450, step: 1, fmt: v => v.toFixed(0) },
+  { k: 'V', lab: '上顎洞の容積', unit: 'mL', min: 4, max: 35, step: 0.5, fmt: v => v.toFixed(1) },
+  { k: 'L', lab: '自然口の長さ（漏斗部）', unit: 'mm', min: 2, max: 15, step: 0.5, fmt: v => v.toFixed(1) },
+];
+const CTL2 = [
+  { k: 'P0', lab: '鼻腔内の音圧振幅（推定）', unit: 'Pa', min: Math.log10(5), max: Math.log10(1000), step: 0.01, log: true, fmt: v => v < 10 ? v.toFixed(1) : v.toFixed(0) },
+  { k: 'kappa', lab: '混合パラメータ κ（大きいほど混ざりにくい）', unit: '', min: 0.3, max: 8, step: 0.1, fmt: v => v.toFixed(1) },
+  { k: 'K', lab: '噴流損失係数 K', unit: '', min: 0.3, max: 3, step: 0.1, fmt: v => v.toFixed(1) },
+  { k: 'tauQ', lab: '安静時の全交換時間（文献 約30分）', unit: '分', min: 5, max: 120, step: 1, fmt: v => v.toFixed(0) },
+  { k: 'tauR', lab: 'NO回復の時定数（文献 4.5分）', unit: '分', min: 0.5, max: 15, step: 0.1, fmt: v => v.toFixed(1) },
+  { k: 'Css', lab: '副鼻腔NOの平衡濃度', unit: 'ppb', min: 1000, max: 20000, step: 100, fmt: v => v.toFixed(0) },
+  { k: 'F', lab: '呼気流量', unit: 'L/s', min: 0.05, max: 0.5, step: 0.01, fmt: v => v.toFixed(2) },
+  { k: 'Cm', lab: '鼻粘膜由来のNO（推定）', unit: 'ppb', min: 2, max: 100, step: 1, fmt: v => v.toFixed(0) },
+];
+const PRESETS = [
+  { name: '標準的な上顎洞', v: { V: 12, d: 2.4, L: 8, f: 150 } },
+  { name: '自然口がやや狭い', v: { V: 12, d: 1.4, L: 8, f: 150 } },
+  { name: '閉塞に近い', v: { V: 12, d: 0.5, L: 8, f: 150 } },
+  { name: '文献の実験モデル', v: { V: 15, d: 1.9, L: 8, f: 200 } },
+];
+const inputs = {};
+function buildCtl(list, host) {
+  for (const c of list) {
+    const w = document.createElement('label');
+    const val = c.log ? Math.log10(P[c.k]) : P[c.k];
+    w.innerHTML = `<span class="row"><span>${c.lab}</span><b><span data-v></span> ${c.unit}</b></span>
+      <input type="range" min="${c.min}" max="${c.max}" step="${c.step}" value="${val}">`;
+    const inp = w.querySelector('input'), out = w.querySelector('[data-v]');
+    const sync = () => { out.textContent = c.fmt(P[c.k]); };
+    inp.addEventListener('input', () => { P[c.k] = c.log ? 10 ** +inp.value : +inp.value; sync(); markPreset(); schedule(); });
+    inputs[c.k] = { inp, sync, c };
+    sync();
+    host.appendChild(w);
+  }
+}
+function setVals(v) {
+  Object.assign(P, v);
+  for (const k in inputs) { const { inp, sync, c } = inputs[k]; inp.value = c.log ? Math.log10(P[k]) : P[k]; sync(); }
+  markPreset(); schedule();
+}
+const pre = document.getElementById('presets');
+PRESETS.forEach(p => { const b = document.createElement('button'); b.textContent = p.name; b.onclick = () => setVals(p.v); pre.appendChild(b); p.el = b; });
+function markPreset() { PRESETS.forEach(p => p.el.classList.toggle('on', Object.entries(p.v).every(([k, v]) => Math.abs(P[k] - v) < 1e-9))); }
+buildCtl(CTL, document.getElementById('ctl'));
+buildCtl(CTL2, document.getElementById('ctl2'));
+markPreset();
+
+let GAP = 3;
+const gapSeg = document.getElementById('gapSeg');
+[['休止3秒', 3], ['30秒', 30], ['3分', 180]].forEach(([n, g]) => {
+  const b = document.createElement('button'); b.textContent = n; b.className = g === GAP ? 'on' : '';
+  b.onclick = () => { GAP = g; [...gapSeg.children].forEach(x => x.classList.toggle('on', x === b)); schedule(); };
+  gapSeg.appendChild(b);
+});
+
+// ---------------- chart helpers ----------------
+const css = n => getComputedStyle(document.body).getPropertyValue(n).trim();
+const tip = document.getElementById('tip');
+function makeChart(id, aspect, minH) {
+  const host = document.getElementById(id);
+  const cv = document.createElement('canvas'); host.appendChild(cv);
+  const ch = { host, cv, ctx: cv.getContext('2d'), aspect, minH, hover: null };
+  cv.addEventListener('pointermove', e => { const r = cv.getBoundingClientRect(); ch.hover = { x: e.clientX - r.left, y: e.clientY - r.top, cx: e.clientX, cy: e.clientY }; draw(); });
+  cv.addEventListener('pointerleave', () => { ch.hover = null; tip.style.display = 'none'; draw(); });
+  return ch;
+}
+function sizeChart(ch) {
+  const w = ch.host.clientWidth, h = Math.max(ch.minH, Math.round(w * ch.aspect));
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  if (ch.cv.width !== Math.round(w * dpr) || ch.cv.height !== Math.round(h * dpr)) {
+    ch.cv.width = Math.round(w * dpr); ch.cv.height = Math.round(h * dpr); ch.cv.style.height = h + 'px';
+  }
+  ch.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ch.w = w; ch.h = h;
+  return ch.ctx;
+}
+function showTip(html, cx, cy) {
+  tip.innerHTML = html; tip.style.display = 'block';
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let x = cx + 12 + scrollX, y = cy - th - 10 + scrollY;
+  if (x + tw > scrollX + innerWidth - 6) x = cx - tw - 12 + scrollX;
+  if (y < scrollY + 4) y = cy + 14 + scrollY;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+function niceTicks(lo, hi, n) {
+  const span = hi - lo, step0 = span / n, mag = 10 ** Math.floor(Math.log10(step0));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= step0) || mag * 10;
+  const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10));
+  return out;
+}
+function axes(ctx, box, xs, ys, xl, yl, xfmt = v => v, yfmt = v => v) {
+  ctx.font = '11px system-ui, -apple-system, sans-serif';
+  ctx.strokeStyle = css('--grid'); ctx.lineWidth = 1; ctx.fillStyle = css('--text-muted');
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const v of ys.ticks) { const y = ys.map(v); ctx.beginPath(); ctx.moveTo(box.x, y + .5); ctx.lineTo(box.x + box.w, y + .5); ctx.stroke(); ctx.fillText(yfmt(v), box.x - 6, y); }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (const v of xs.ticks) { const x = xs.map(v); ctx.fillText(xfmt(v), x, box.y + box.h + 5); }
+  ctx.strokeStyle = css('--axis'); ctx.beginPath(); ctx.moveTo(box.x, box.y + box.h + .5); ctx.lineTo(box.x + box.w, box.y + box.h + .5); ctx.stroke();
+  ctx.fillStyle = css('--text-secondary');
+  ctx.textAlign = 'right'; ctx.fillText(xl, box.x + box.w, box.y + box.h + 20);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText(yl, box.x - 34 < 0 ? 0 : box.x - 34, box.y - 6);
+}
+const lin = (d0, d1, r0, r1) => v => r0 + (v - d0) / (d1 - d0) * (r1 - r0);
+const lerpHex = (a, b, t) => {
+  const pa = a.match(/\w\w/g).map(h => parseInt(h, 16)), pb = b.match(/\w\w/g).map(h => parseInt(h, 16));
+  return `rgb(${pa.map((v, i) => Math.round(v + (pb[i] - v) * t)).join(',')})`;
+};
+function seqColor(t) {
+  const st = ['--seq-0', '--seq-1', '--seq-2', '--seq-3', '--seq-4', '--seq-5', '--seq-6', '--seq-7'].map(css);
+  t = Math.max(0, Math.min(1, t)) * (st.length - 1);
+  const i = Math.min(st.length - 2, Math.floor(t));
+  return lerpHex(st[i], st[i + 1], t - i);
+}
+
+const cFreq = makeChart('cFreq', 0.62, 220);
+const cHeat = makeChart('cHeat', 0.75, 260);
+const cNO = makeChart('cNO', 0.38, 190);
+const cCs = makeChart('cCs', 0.26, 150);
+const cOst = makeChart('cOst', 0.34, 170);
+
+// ---------------- render ----------------
+let cache = {};
+function compute() {
+  const s = solve(P, P.f);
+  // frequency response
+  const fr = [];
+  for (let f = 50; f <= 600; f += 2) { const r = solve(P, f); fr.push({ f, q: r.Qex * 1e6 }); }
+  // heatmap
+  const DN = 60, FN = 56, dmin = 0.3, dmax = 5, fmin = 60, fmax = 450;
+  const heat = new Float32Array(DN * FN);
+  for (let j = 0; j < FN; j++) for (let i = 0; i < DN; i++) {
+    const d = dmin + (i + .5) / DN * (dmax - dmin), f = fmin + (j + .5) / FN * (fmax - fmin);
+    heat[j * DN + i] = frac5(solve(P, f, d).Qex, P.V);
+  }
+  // NO
+  const no = simNO(P, GAP);
+  // ostium comparison
+  const OD = [0.8, 1.29, 1.9, 2.1, 4.0];
+  const ost = OD.map(d => ({ d, q: solve({ ...P, V: 15 }, 200, d, 15).Qex * 1e6 }));
+  cache = { s, fr, heat, DN, FN, dmin, dmax, fmin, fmax, no, ost };
+}
+function drawFreq() {
+  const ch = cFreq, ctx = sizeChart(ch), { fr, s } = cache;
+  ctx.clearRect(0, 0, ch.w, ch.h);
+  const box = { x: 42, y: 22, w: ch.w - 54, h: ch.h - 22 - 38 };
+  const ymax = Math.max(0.5, ...fr.map(p => p.q)) * 1.12;
+  const xs = { map: lin(50, 600, box.x, box.x + box.w), ticks: [100, 200, 300, 400, 500, 600] };
+  const ys = { map: lin(0, ymax, box.y + box.h, box.y), ticks: niceTicks(0, ymax, 4) };
+  ctx.fillStyle = css('--band'); ctx.fillRect(xs.map(100), box.y, xs.map(250) - xs.map(100), box.h);
+  axes(ctx, box, xs, ys, '周波数 (Hz)', '換気量 (mL/s)', v => v, v => (v < 1 ? v.toFixed(1) : v.toFixed(0)));
+  ctx.strokeStyle = css('--series-1'); ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.beginPath(); fr.forEach((p, i) => { const x = xs.map(p.f), y = ys.map(p.q); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
+  // f0 dashed
+  if (s.f0 >= 50 && s.f0 <= 600) {
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = css('--text-muted'); ctx.lineWidth = 1;
+    const x = xs.map(s.f0); ctx.beginPath(); ctx.moveTo(x, box.y); ctx.lineTo(x, box.y + box.h); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = css('--text-secondary'); ctx.textAlign = x > box.x + box.w - 60 ? 'right' : 'left'; ctx.textBaseline = 'top';
+    ctx.fillText(`f₀ ${s.f0.toFixed(0)} Hz`, x + (ctx.textAlign === 'left' ? 4 : -4), box.y + 2);
+  }
+  // current f
+  const xf = xs.map(P.f), cq = s.Qex * 1e6;
+  ctx.strokeStyle = css('--text-primary'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(xf + .5, box.y + 14); ctx.lineTo(xf + .5, box.y + box.h); ctx.stroke();
+  ctx.fillStyle = css('--series-1'); ctx.strokeStyle = css('--surface-1'); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(xf, ys.map(cq), 5, 0, 7); ctx.fill(); ctx.stroke();
+  // hover
+  if (ch.hover) {
+    const f = Math.max(50, Math.min(600, 50 + (ch.hover.x - box.x) / box.w * 550));
+    const p = fr.reduce((a, b) => Math.abs(b.f - f) < Math.abs(a.f - f) ? b : a);
+    const x = xs.map(p.f);
+    ctx.strokeStyle = css('--axis'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + .5, box.y); ctx.lineTo(x + .5, box.y + box.h); ctx.stroke();
+    ctx.fillStyle = css('--series-1'); ctx.strokeStyle = css('--surface-1'); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, ys.map(p.q), 4, 0, 7); ctx.fill(); ctx.stroke();
+    showTip(`<b>${p.f} Hz</b><br><span class="m">換気量</span> ${p.q.toFixed(2)} mL/s<br><span class="m">5秒で入れ替わる割合</span> ${(frac5(p.q * 1e-6, P.V) * 100).toFixed(0)}%`, ch.hover.cx, ch.hover.cy);
+  }
+}
+function drawHeat() {
+  const ch = cHeat, ctx = sizeChart(ch), { heat, DN, FN, dmin, dmax, fmin, fmax, s } = cache;
+  ctx.clearRect(0, 0, ch.w, ch.h);
+  const box = { x: 42, y: 22, w: ch.w - 54, h: ch.h - 22 - 38 };
+  const xs = { map: lin(dmin, dmax, box.x, box.x + box.w), ticks: [1, 2, 3, 4, 5] };
+  const ys = { map: lin(fmin, fmax, box.y + box.h, box.y), ticks: [100, 200, 300, 400] };
+  const cw = box.w / DN, chh = box.h / FN;
+  for (let j = 0; j < FN; j++) for (let i = 0; i < DN; i++) {
+    ctx.fillStyle = seqColor(heat[j * DN + i]);
+    ctx.fillRect(box.x + i * cw, box.y + box.h - (j + 1) * chh, cw + .6, chh + .6);
+  }
+  axes(ctx, box, xs, ys, '自然口の直径 (mm)', 'ハミング (Hz)', v => v, v => v);
+  // f0 curve
+  ctx.save(); ctx.beginPath(); ctx.rect(box.x, box.y, box.w, box.h); ctx.clip();
+  ctx.beginPath();
+  for (let i = 0; i <= 100; i++) { const d = dmin + i / 100 * (dmax - dmin); const f0 = solve(P, 150, d).f0; const x = xs.map(d), y = ys.map(f0); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+  ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 4; ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.lineWidth = 2; ctx.stroke();
+  // current point
+  const px = xs.map(P.d), py = ys.map(P.f);
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(px, py, 6, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.restore();
+  // label for f0 line
+  ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  const dl = 1.2, fl = solve(P, 150, dl).f0;
+  if (fl > fmin && fl < fmax - 20) { ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.strokeText('共鳴 f₀', xs.map(dl) + 6, ys.map(fl) - 4); ctx.fillStyle = '#fff'; ctx.fillText('共鳴 f₀', xs.map(dl) + 6, ys.map(fl) - 4); }
+  if (ch.hover) {
+    const d = dmin + (ch.hover.x - box.x) / box.w * (dmax - dmin), f = fmin + (box.y + box.h - ch.hover.y) / box.h * (fmax - fmin);
+    if (d >= dmin && d <= dmax && f >= fmin && f <= fmax) {
+      const r = solve(P, f, d);
+      ctx.strokeStyle = css('--text-primary'); ctx.lineWidth = 1.5; ctx.strokeRect(xs.map(d) - 4, ys.map(f) - 4, 8, 8);
+      showTip(`<b>直径 ${d.toFixed(2)} mm ／ ${f.toFixed(0)} Hz</b><br><span class="m">5秒で入れ替わる割合</span> ${(frac5(r.Qex, P.V) * 100).toFixed(0)}%<br><span class="m">換気量</span> ${(r.Qex * 1e6).toFixed(2)} mL/s<br><span class="m">共鳴 f₀</span> ${r.f0.toFixed(0)} Hz`, ch.hover.cx, ch.hover.cy);
+    } else tip.style.display = 'none';
+  }
+}
+function drawSeries(ch, pts, key, color, ylab, yfmt, tipFmt) {
+  const ctx = sizeChart(ch);
+  ctx.clearRect(0, 0, ch.w, ch.h);
+  const box = { x: 46, y: 20, w: ch.w - 58, h: ch.h - 20 - 36 };
+  const tmax = pts[pts.length - 1].t;
+  const vals = pts.map(p => p[key]).filter(v => v != null);
+  const ymax = Math.max(...vals) * 1.1 || 1;
+  const xt = niceTicks(0, tmax, 6);
+  const xs = { map: lin(0, tmax, box.x, box.x + box.w), ticks: xt };
+  const ys = { map: lin(0, ymax, box.y + box.h, box.y), ticks: niceTicks(0, ymax, 3) };
+  // hum spans
+  ctx.fillStyle = css('--band');
+  let st = null;
+  pts.forEach((p, i) => { const h = p.type === 'hum'; if (h && st == null) st = p.t; if ((!h || i === pts.length - 1) && st != null) { ctx.fillRect(xs.map(st), box.y, xs.map(p.t) - xs.map(st), box.h); st = null; } });
+  axes(ctx, box, xs, ys, '時間 (秒)', ylab, v => tmax > 300 ? (v / 60).toFixed(0) + '分' : v, yfmt);
+  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.beginPath(); let pen = false;
+  for (const p of pts) { const v = p[key]; if (v == null) { pen = false; continue; } const x = xs.map(p.t), y = ys.map(v); pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true; }
+  ctx.stroke();
+  if (ch.hover) {
+    const t = (ch.hover.x - box.x) / box.w * tmax;
+    const p = pts.reduce((a, b) => Math.abs(b.t - t) < Math.abs(a.t - t) ? b : a);
+    const x = xs.map(p.t);
+    ctx.strokeStyle = css('--axis'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + .5, box.y); ctx.lineTo(x + .5, box.y + box.h); ctx.stroke();
+    if (p[key] != null) { ctx.fillStyle = color; ctx.strokeStyle = css('--surface-1'); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, ys.map(p[key]), 4, 0, 7); ctx.fill(); ctx.stroke(); }
+    const lab = { quiet: '静かな呼気', hum: 'ハミング', pause: '吸気・休止' }[p.type];
+    showTip(`<b>${p.t.toFixed(1)} 秒</b>　<span class="m">${lab}</span><br>${tipFmt(p)}`, ch.hover.cx, ch.hover.cy);
+  }
+}
+function drawOst() {
+  const ch = cOst, ctx = sizeChart(ch), { ost } = cache;
+  ctx.clearRect(0, 0, ch.w, ch.h);
+  const box = { x: 42, y: 18, w: ch.w - 54, h: ch.h - 18 - 36 };
+  const ymax = Math.max(...ost.map(o => o.q)) * 1.15 || 1;
+  const n = ost.length, slot = box.w / n, bw = Math.min(46, slot * 0.55);
+  const xs = { map: i => box.x + slot * (i + .5), ticks: [] };
+  const ys = { map: lin(0, ymax, box.y + box.h, box.y), ticks: niceTicks(0, ymax, 3) };
+  axes(ctx, box, xs, ys, '自然口の直径 (mm)', '換気量 (mL/s)', v => v, v => (v < 1 ? v.toFixed(1) : v.toFixed(0)));
+  ctx.font = '11px system-ui, sans-serif';
+  let hi = -1;
+  if (ch.hover) { const i = Math.floor((ch.hover.x - box.x) / slot); if (i >= 0 && i < n) hi = i; }
+  ost.forEach((o, i) => {
+    const x = xs.map(i) - bw / 2, y = ys.map(o.q), h = box.y + box.h - y;
+    ctx.fillStyle = css('--series-1'); ctx.globalAlpha = hi === -1 || hi === i ? 1 : .45;
+    const r = Math.min(4, h);
+    ctx.beginPath(); ctx.moveTo(x, box.y + box.h); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.lineTo(x + bw - r, y); ctx.quadraticCurveTo(x + bw, y, x + bw, y + r); ctx.lineTo(x + bw, box.y + box.h); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = css('--text-muted'); ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(o.d.toFixed(2).replace(/0$/, ''), xs.map(i), box.y + box.h + 5);
+    ctx.fillStyle = css('--text-secondary'); ctx.textBaseline = 'bottom'; ctx.fillText(o.q.toFixed(1), xs.map(i), y - 3);
+  });
+  if (hi >= 0) { const o = ost[hi]; showTip(`<b>直径 ${o.d} mm</b><br><span class="m">換気量</span> ${o.q.toFixed(2)} mL/s<br><span class="m">5秒で入れ替わる割合</span> ${(frac5(o.q * 1e-6, 15) * 100).toFixed(0)}%`, ch.hover.cx, ch.hover.cy); }
+}
+function fmtTime(sec) { if (sec > 3600) return '1時間超'; if (sec >= 120) return (sec / 60).toFixed(0) + ' 分'; if (sec >= 10) return sec.toFixed(0) + ' 秒'; return sec.toFixed(1) + ' 秒'; }
+function drawKpis() {
+  const { s, no } = cache;
+  const pts = no.pts;
+  const quiet = pts.filter(p => p.type === 'quiet' && p.Cn != null);
+  const qAvg = quiet.reduce((a, p) => a + p.Cn, 0) / quiet.length;
+  const peak = pts.filter(p => p.type === 'hum').reduce((a, p) => Math.max(a, p.Cn), 0);
+  const ratio = peak / qAvg;
+  const fr = frac5(s.Qex, P.V);
+  const rel = P.f / s.f0;
+  const regime = rel < 0.8 ? '共鳴より低い（ばね支配）' : rel > 1.25 ? '共鳴より高い（質量支配）' : '共鳴付近';
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="l">共鳴周波数 f₀</div><div class="v">${s.f0.toFixed(0)}<small>Hz</small></div><div class="n">${regime}</div></div>
+    <div class="kpi"><div class="l">換気量</div><div class="v">${(s.Qex * 1e6).toFixed(2)}<small>mL/s</small></div><div class="n">1周期の流入 ${(s.Vin * 1e9).toFixed(1)} µL、混合率 ${(s.eta * 100).toFixed(0)}%</div></div>
+    <div class="kpi"><div class="l">5秒のハミングで入れ替わる割合</div><div class="v">${(fr * 100).toFixed(0)}<small>%</small></div><div class="n">63%入れ替わるまで ${fmtTime(s.tau)}</div></div>
+    <div class="kpi"><div class="l">鼻NOの増加（初回ハミング）</div><div class="v">${ratio.toFixed(1)}<small>倍</small></div><div class="n">文献値は約15倍</div></div>`;
+  // comparison table
+  const humPeaks = [];
+  let cur = null;
+  for (const p of pts) { if (p.type === 'hum') { if (!cur) cur = { max: 0 }; cur.max = Math.max(cur.max, p.Cn); } else if (cur) { humPeaks.push(cur.max); cur = null; } }
+  if (cur) humPeaks.push(cur.max);
+  const decline = humPeaks.length > 1 ? (1 - humPeaks[humPeaks.length - 1] / humPeaks[0]) : 0;
+  const ost = cache.ost;
+  let mono = true; for (let i = 1; i < ost.length; i++) if (ost[i].q < ost[i - 1].q * 0.98) mono = false;
+  const best = ost.reduce((a, b) => b.q > a.q ? b : a);
+  const ok = b => `<span class="tag ${b ? 'ok' : 'ng'}">${b ? '✓ 一致' : '! 不一致'}</span>`;
+  document.getElementById('cmp').innerHTML = `
+    <tr><th>項目</th><th>モデル</th><th>文献</th><th></th></tr>
+    <tr><td>鼻NOの増加（ハミング/静かな呼気）</td><td class="num">${ratio.toFixed(1)}倍</td><td>約15倍（Weitzberg 2002）</td><td>${ok(ratio > 7 && ratio < 30)}</td></tr>
+    <tr><td>自然口の径を0.8→4.0 mmにしたとき</td><td>${mono ? '単調に増加' : `${best.d} mm付近で最大、その後減少`}</td><td>NO出力は径とともに増加（2区画モデル実験）</td><td>${ok(mono)}</td></tr>
+    <tr><td>反復ハミングでのピーク（5回目/1回目）</td><td class="num">${(100 - decline * 100).toFixed(0)}%に低下</td><td>反復でピーク低下、休止で回復（Menzel 2005）</td><td>${ok(decline > 0.1 || GAP >= 180)}</td></tr>
+    <tr><td>休止3分後の回復</td><td colspan="2">回復の時定数は入力値（${P.tauR.toFixed(1)}分）なので、照合対象ではなく前提です</td><td></td></tr>`;
+}
+function draw() {
+  if (!cache.s) return;
+  drawFreq(); drawHeat();
+  const pts = cache.no.pts;
+  drawSeries(cNO, pts, 'Cn', css('--series-1'), '鼻から出るNO (ppb)', v => v.toFixed(0), p => p.Cn == null ? '<span class="m">吸気中（測定なし）</span>' : `<span class="m">鼻NO</span> ${p.Cn.toFixed(0)} ppb`);
+  drawSeries(cCs, pts, 'Cs', css('--series-2'), '副鼻腔NO (ppm)', v => (v / 1000).toFixed(1), p => `<span class="m">副鼻腔NO</span> ${(p.Cs / 1000).toFixed(2)} ppm`);
+  drawOst();
+}
+let pending = false;
+function schedule() { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; compute(); drawKpis(); draw(); }); }
+document.getElementById('rampSw').style.background = `linear-gradient(90deg, ${[0, .2, .4, .6, .8, 1].map(seqColor).join(',')})`;
+addEventListener('resize', draw);
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { document.getElementById('rampSw').style.background = `linear-gradient(90deg, ${[0, .2, .4, .6, .8, 1].map(seqColor).join(',')})`; draw(); });
+schedule();
+})();
+</script>
+</body>
+</html>

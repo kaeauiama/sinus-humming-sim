@@ -1,0 +1,9 @@
+{
+  "name": "sinus-humming-sim-test",
+  "private": true,
+  "type": "module",
+  "description": "Headless/real-GPU driver for the WebGPU pages (see test/run.mjs)",
+  "dependencies": {
+    "puppeteer-core": "^25.18.1"
+  }
+}

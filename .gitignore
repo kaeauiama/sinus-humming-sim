@@ -1,0 +1,8 @@
+node_modules/
+test/out/
+geometry/mask_preview.npy
+__pycache__/
+*.png.tmp
+.claude/settings.local.json
+results/lbm/**/snap_*.u8
+results/lbm/test_*/

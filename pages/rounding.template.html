@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>仮説検証：自然口の縁が丸いと換気はどう変わるか</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #e2e0da;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+    --grid: #ebe9e4; --axis: #b9b7b0;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-0: #111110; --surface-1: #1a1a19; --border: #2e2e2b;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+      --grid: #2a2a27; --axis: #55544f;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body.viz-root { background: var(--surface-0); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; line-height: 1.6;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  main { max-width: 1040px; margin: 0 auto; padding: 18px 14px 40px; }
+  h1 { font-size: 21px; margin: 4px 0 2px; }
+  .lede { color: var(--text-secondary); font-size: 14px; margin: 0 0 14px; }
+  h2 { font-size: 15px; margin: 0 0 2px; }
+  .sub { color: var(--text-muted); font-size: 12px; margin: 0 0 8px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  .layout { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  @media (min-width: 860px) { .layout { grid-template-columns: 1fr 1fr; align-items: start; } .layout .card { margin-bottom: 0; } .layout { margin-bottom: 12px; } }
+  .simwrap { position: relative; border-radius: 10px; overflow: hidden; background: #0b0e17; aspect-ratio: 1 / 1; touch-action: none; }
+  #sim { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  .hud { position: absolute; left: 10px; top: 8px; font-size: 11px; color: #e8ecff; text-shadow: 0 1px 2px #000; line-height: 1.5; font-variant-numeric: tabular-nums; pointer-events: none; }
+  .hint { position: absolute; right: 10px; bottom: 8px; font-size: 11px; color: #aab3d6; text-shadow: 0 1px 2px #000; pointer-events: none; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .btns button { font: inherit; font-size: 13px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-0); color: var(--text-primary); cursor: pointer; }
+  .btns button.pri { background: var(--s1); border-color: var(--s1); color: #fff; }
+  .btns button:disabled { opacity: .45; cursor: default; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { font: inherit; font-size: 12px; padding: 4px 10px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+  .seg button.on { background: var(--s1); color: #fff; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-top: 6px; align-items: center; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .sw.dash { width: 14px; height: 0; border-top: 2px dashed var(--text-secondary); border-radius: 0; vertical-align: 3px; }
+  .chart { position: relative; width: 100%; }
+  .chart canvas { display: block; width: 100%; touch-action: pan-y; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-size: 12px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,.12); display: none; z-index: 5; font-variant-numeric: tabular-nums; }
+  .tip .m { color: var(--text-secondary); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-muted); font-weight: 500; font-size: 11px; }
+  td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  .tablewrap { overflow-x: auto; } .tablewrap table { min-width: 480px; } .tablewrap td { white-space: nowrap; }
+  .note { font-size: 12px; color: var(--text-secondary); }
+  .err { color: #d03b3b; font-size: 13px; white-space: pre-wrap; }
+  .status { font-size: 13px; margin-top: 10px; }
+  .runv { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .prog { height: 5px; background: var(--grid); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+  .prog i { display: block; height: 100%; width: 0; background: var(--s1); }
+  .verdict { font-size: 14px; margin: 10px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--surface-0); border: 1px solid var(--border); }
+  .hyp { display: grid; gap: 8px; margin-top: 8px; }
+  @media (min-width: 600px) { .hyp { grid-template-columns: 1fr 1fr; } }
+  .hyp div { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: var(--surface-0); font-size: 13px; }
+  .hyp b { display: block; font-size: 12px; color: var(--text-muted); font-weight: 600; }
+  .skw { display: grid; grid-template-columns: 1fr; gap: 6px; } @media (min-width: 600px) { .skw { grid-template-columns: 1fr 1fr; } }
+  svg.sk { width: 100%; max-width: 420px; display: block; margin: 0 auto; }
+  svg.sk text { font-size: 11px; fill: var(--text-secondary); font-family: inherit; }
+  .src { font-size: 12px; color: var(--text-secondary); padding-left: 18px; margin: 6px 0 0; }
+  .src a { color: var(--s1); }
+</style>
+</head>
+<body class="viz-root">
+<main>
+  <h1>仮説検証：自然口の縁が丸いと換気はどう変わるか</h1>
+  <p class="lede">これまでのモデルは、自然口を「骨にあいた縁の鋭い穴」として扱ってきました。実際の自然口は粘膜に覆われ、縁が丸くなっています。縁の丸みを変えて3D流体計算で混合率を測り、実験と食い違っていた「自然口が大きいほどハミングでNOが増える」が説明できるかを確かめます。</p>
+
+  <section class="card">
+    <h2>2つの見込みが逆向きに働く</h2>
+    <div class="skw">
+      <svg class="sk" viewBox="0 0 300 160" role="img" aria-label="縁の鋭い自然口の断面図">
+        <rect x="5" y="0" width="120" height="130" fill="var(--grid)"/><rect x="175" y="0" width="120" height="130" fill="var(--grid)"/>
+        <rect x="125" y="0" width="50" height="45" fill="var(--axis)"/><rect x="125" y="85" width="50" height="45" fill="var(--axis)"/>
+        <text x="65" y="70" text-anchor="middle">上顎洞</text><text x="235" y="70" text-anchor="middle">鼻腔</text>
+        <text x="150" y="152" text-anchor="middle">縁の鋭い穴（これまで）</text>
+      </svg>
+      <svg class="sk" viewBox="0 0 300 160" role="img" aria-label="縁の丸い自然口の断面図">
+        <rect x="5" y="0" width="120" height="130" fill="var(--grid)"/><rect x="175" y="0" width="120" height="130" fill="var(--grid)"/>
+        <path d="M125 0 H175 V20 A25 25 0 0 1 150 45 A25 25 0 0 1 125 20 Z" fill="var(--axis)"/>
+        <path d="M125 130 H175 V110 A25 25 0 0 0 150 85 A25 25 0 0 0 125 110 Z" fill="var(--axis)"/>
+        <text x="65" y="70" text-anchor="middle">上顎洞</text><text x="235" y="70" text-anchor="middle">鼻腔</text>
+        <text x="150" y="152" text-anchor="middle">縁の丸い穴（壁の厚み・最も細い所は同じ）</text>
+      </svg>
+    </div>
+    <div class="hyp">
+      <div><b>見込みA：混合率は下がる</b>縁が丸いと流れがはがれにくく、押し出しと吸い込みが対称に近づきます。往復するだけで入れ替わりにくくなります。</div>
+      <div><b>見込みB：混合率は上がる</b>丸みの分だけ、細いまっすぐな部分（往復するだけの「死腔」）が短くなります。同じ空気柱でも穴を抜けやすくなります。</div>
+    </div>
+  </section>
+
+  <div class="layout">
+    <section class="card">
+      <div class="simwrap"><canvas id="sim"></canvas><div class="hud" id="hud">準備中…</div><div class="hint" id="hint">ドラッグで回転・ピンチ／ホイールで拡大</div></div>
+      <div style="margin-top:8px"><span class="seg" id="viewSeg"></span></div>
+      <div class="legend" id="viewLegend"></div>
+      <div class="err" id="err"></div>
+    </section>
+    <section class="card">
+      <h2>実行</h2>
+      <p class="sub">PCのChrome / Edgeで、検証1が5〜10分、検証2が5〜10分ほどが目安です</p>
+      <div class="btns"><button class="pri" id="bE1">検証1：理想形状で丸みを変える（9件）</button><button class="pri" id="bE2">検証2：実際の上顎洞で自然口の大きさ×丸み（6件）</button><button id="bC">対照：往復させない（3件）</button><button id="bStop">停止</button></div>
+      <div class="status" id="status">準備中…</div>
+      <div class="runv" id="runv"></div>
+      <div class="prog"><i id="prog"></i></div>
+      <p class="note" style="margin-top:10px">左の画面は自然口を通る断面で、縁の形と、出入りする空気（NOの濃さ）が見えます。丸みは格子で表すため階段状になります。</p>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>検証1：同じ空気柱で、縁の丸みだけを変える</h2>
+    <p class="sub">球形の空洞＋円筒の自然口（直径 d、長さ 0.8d ＝ P001と同じ比）。丸み半径 0・0.2d・0.4d（0.4dで全体が丸い喉になる）× 空気柱 L₀/L＝1・2・4</p>
+    <div class="chart" id="cE1"></div>
+    <div class="legend"><span><span class="sw" style="background:var(--s1)"></span>丸みなし（鋭い縁）</span><span><span class="sw" style="background:var(--s2)"></span>丸み 0.2d</span><span><span class="sw" style="background:var(--s3)"></span>丸み 0.4d（全体が丸い）</span><span><span class="sw dash"></span>これまでの式（鋭い縁で当てはめ）</span></div>
+    <div class="tablewrap"><table id="t1" style="margin-top:8px"></table></div>
+    <p class="verdict" id="v1">検証1を実行すると、ここに判定が出ます。</p>
+  </section>
+
+  <section class="card">
+    <h2>対照：空気を往復させないと、洞のNOはどれだけ減るか</h2>
+    <p class="sub">検証1の鋭い縁と同じ形・同じ周期で、往復の駆動だけを止めます。それでも減るぶん（拡散、鼻腔を流れる息、計算の誤差）は、測った混合率の「底上げ」になります。往復させたときに入る空気の量で割り、混合率と同じ単位で示します。</p>
+    <div class="tablewrap"><table id="tC" style="margin-top:8px"></table></div>
+    <p class="verdict" id="vC">対照を実行すると、ここに判定が出ます。</p>
+  </section>
+
+  <section class="card">
+    <h2>検証2：実際の上顎洞で、自然口の大きさと丸みを組み合わせる</h2>
+    <p class="sub">P001の上顎洞、150 Hz・100 Pa。自然口の直径 2.0・2.8・4.0 mm × 縁（鋭い・丸み1.0 mm ＝ 壁の厚み2.1 mmのほぼ全体が丸い）。混合率を測り、NOモデルで「ハミングで鼻のNOが何倍になるか」に換算</p>
+    <div class="chart" id="cE2"></div>
+    <div class="legend"><span><span class="sw" style="background:var(--s1)"></span>鋭い縁</span><span><span class="sw" style="background:var(--s2)"></span>丸い縁（1.0 mm）</span></div>
+    <div class="tablewrap"><table id="t2" style="margin-top:8px"></table></div>
+    <p class="verdict" id="v2">検証2を実行すると、ここに判定が出ます。実験では、自然口が大きい人ほどハミングでNOが増えると報告されています。</p>
+  </section>
+
+  <section class="card">
+    <h2>方法と限界</h2>
+    <div class="note">
+      <p>丸みは、穴の両端を四分円で広げて表します。最も細い部分の直径と壁の厚みは変えません。自然口の中ほどで空気を往復させ、目標の空気柱になるまで振幅を周期ごとに合わせます。合った周期の上顎洞のNOの減り方から、混合率（入った空気のうち実際に入れ替わった割合）を求めます。</p>
+      <p>検証2では、出入りする空気の量を共鳴モデルで決めています。量はほぼ洞の空気の縮みで決まるので、縁の形にはあまり左右されないとみなしています。0.4 mmの格子では丸み1.0 mmを2.5格子で表すため、形は粗い近似です。NOへの換算には、統合版と同じNOモデルを使います（上顎洞以外の副鼻腔は式の値）。</p>
+    </div>
+    <ol class="src">
+      <li>形状：<a href="https://doi.org/10.5281/zenodo.13893419">NasalSeg</a>（Zhang Y. et al., Scientific Data 2024、<a href="https://creativecommons.org/licenses/by/4.0/deed.ja">CC BY 4.0</a>）症例P001のラベル2・4を改変して使用（再標本化・切り出し・平滑化・自然口を円筒で掘り直し）</li>
+      <li>自然口が大きいほどハミングでNOが増える：<a href="https://pubmed.ncbi.nlm.nih.gov/12952268/">Maniscalco et al. (2003)</a> ほかの測定・模型研究</li>
+    </ol>
+    <p class="note">これは、換気の物理を調べるための計算です。診断や治療の効果を示すものではありません。</p>
+  </section>
+</main>
+<div class="tip" id="tip"></div>
+<script>
+const P001_INFO = /*INFO*/null;
+const GEOM_B64 = "/*B64*/";
+let GEOM_INFO = P001_INFO;
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
+const showErr = m => { $('err').textContent += m + '\n'; };
+const NONE = 0xffffffff;
+/*CONSTS*/
+const G = { nx: 0, ny: 0, nz: 0, dx: 0.4, base: null };
+const F = { nf: 0, dense2f: null, f2dense: null, type: null, nb: null, slab: null, sinusCells: 0, tubeCells: 0, axis: [0, 0, 0], tubeLen: 0, dCells: 0, area: 0, c0: null };
+const P = { Re: +qs.get('re') || 300, chRatio: 0.12 };   // re: Reynolds number of the peak ostium flow (roadmap 2)
+let VIEW = 2;
+/*WGSL*/
+/*GPUVARS*/
+const R = { running: false, warm: 0, warmDone: false, cur: 0, ck: 0, gstep: 0, stepInCycle: 0, cycle: 0, T: 1000, omega: 0, F0: 0, target: 0, Cprev: 0, results: [], onDone: null, runId: 0, done: false };
+let spf = 30, lastT = 0, sps = 0, spsAcc = 0, spsT = 0;
+/*CAMERA*/
+/*FUNCS*/
+
+// ---------------- geometry with rounded ostium edges ----------------
+// The ostium is a cylinder from A (sinus side) to B (nasal side). Each end is widened by a
+// quarter-circle fillet of radius rf, so the throat diameter and the wall thickness stay fixed.
+function buildFluid(dmm, rfmm = 0) {
+  const { nx, ny, nz } = G, N = nx * ny * nz;
+  const A = GEOM_INFO.A, Bp = GEOM_INFO.B;
+  const ax = [Bp[0] - A[0], Bp[1] - A[1], Bp[2] - A[2]];
+  const len = Math.hypot(...ax); const a = ax.map(v => v / len);
+  const r = dmm / 2 / G.dx, rf = Math.min(rfmm / G.dx, len / 2), Rmax = r + rf;
+  const ext = 1.5;
+  const m = new Uint8Array(G.base);
+  const tParam = new Float32Array(N).fill(-1), tAx = new Float64Array(N);   // tAx: exact axial coordinate for the slab test
+  const lo = [0, 1, 2].map(i => Math.max(1, Math.floor(Math.min(A[i], Bp[i]) - Rmax - ext - 1)));
+  const hi = [0, 1, 2].map(i => Math.min([nx, ny, nz][i] - 2, Math.ceil(Math.max(A[i], Bp[i]) + Rmax + ext + 1)));
+  for (let z = lo[2]; z <= hi[2]; z++) for (let y = lo[1]; y <= hi[1]; y++) for (let x = lo[0]; x <= hi[0]; x++) {
+    const px = x - A[0], py = y - A[1], pz = z - A[2];
+    const t = px * a[0] + py * a[1] + pz * a[2];
+    if (t < -ext || t > len + ext) continue;
+    const s = Math.min(t, len - t);
+    let rr = r;
+    if (s < 0) rr = Rmax;
+    else if (s < rf) rr = r + rf - Math.sqrt(Math.max(0, rf * rf - (rf - s) * (rf - s)));
+    const qx = px - t * a[0], qy = py - t * a[1], qz = pz - t * a[2];
+    if (qx * qx + qy * qy + qz * qz > rr * rr) continue;
+    const i = (z * ny + y) * nx + x;
+    if (m[i] === 0) { m[i] = 5; tParam[i] = Math.max(0, Math.min(1, t / len)); tAx[i] = t; }
+  }
+  const dense2f = new Uint32Array(N).fill(NONE);
+  let nf = 0;
+  for (let i = 0; i < N; i++) if (m[i]) dense2f[i] = nf++;
+  const f2dense = new Uint32Array(nf), type = new Uint32Array(nf), c0 = new Float32Array(nf);
+  let sinusCells = 0, tubeCells = 0;
+  const slab = [];
+  for (let i = 0; i < N; i++) if (m[i]) {
+    const k = dense2f[i]; f2dense[k] = i; type[k] = m[i];
+    if (m[i] === 2) { sinusCells++; c0[k] = 1; }
+    if (m[i] === 5) { tubeCells++; c0[k] = 1 - tParam[i]; const sm = tAx[i] - len / 2; if (sm >= -0.5 && sm < 0.5) slab.push(k); }
+  }
+  const nb = new Uint32Array(19 * nf);
+  for (let k = 0; k < nf; k++) {
+    const i = f2dense[k], x = i % nx, y = ((i / nx) | 0) % ny, z = (i / (nx * ny)) | 0;
+    for (let q = 0; q < 19; q++) {
+      const sx = x - EX[q], sy = y - EY[q], sz = z - EZ[q];
+      let j = NONE;
+      if (sx >= 0 && sy >= 0 && sz >= 0 && sx < nx && sy < ny && sz < nz) j = dense2f[(sz * ny + sy) * nx + sx];
+      nb[q * nf + k] = j;
+    }
+  }
+  Object.assign(F, { nf, dense2f, f2dense, type, nb, slab: new Uint32Array(slab), sinusCells, tubeCells, axis: a, tubeLen: len, dCells: 2 * r, area: Math.PI * r * r, c0, dmm, rfc: rf });
+}
+// idealized geometry: sphere cavity + ostium + nasal channel (same as the dead-volume verification)
+const DC = +qs.get("dc") || 10;
+function makeIdeal(d, Lratio) {
+  const dx = d / DC, Lc = Math.max(2, Math.round(Lratio * DC)), Rc = Math.round(3.2 * DC);
+  const Hc = 2 * DC, Wc = 4 * DC;
+  const nx = Math.max(2 * Rc + 8, Wc + 8), ny = 2 * Rc + 14;
+  const cz = Rc + 2, f0 = cz + Rc + 1, zc0 = f0 + Lc, nz = zc0 + Hc + 2;
+  const cx = (nx - 1) / 2, cy = (ny - 1) / 2;
+  const m = new Uint8Array(nx * ny * nz);
+  for (let z = 1; z < nz - 1; z++) for (let y = 0; y < ny; y++) for (let x = 1; x < nx - 1; x++) {
+    const i = (z * ny + y) * nx + x;
+    if (z >= zc0 && z < zc0 + Hc && Math.abs(x - cx) <= Wc / 2) m[i] = y === 0 ? 4 : y === ny - 1 ? 3 : 1;
+    else if (y > 0 && y < ny - 1) { const a = x - cx, b = y - cy, c = z - cz; if (a * a + b * b + c * c <= Rc * Rc) m[i] = 2; }
+  }
+  Object.assign(G, { nx, ny, nz, dx, base: m });
+  GEOM_INFO = { A: [cx, cy, f0 - 0.5], B: [cx, cy, zc0 - 0.5], dims: [nx, ny, nz] };
+  return Lc;
+}
+let P001_BASE = null;
+async function loadP001() {
+  const bin = Uint8Array.from(atob(GEOM_B64), ch => ch.charCodeAt(0));
+  if (typeof DecompressionStream === 'undefined') throw new Error('このブラウザは DecompressionStream に対応していません。');
+  const ds = new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'));
+  P001_BASE = new Uint8Array(await new Response(ds).arrayBuffer());
+}
+let curKey = '';
+function setGeometry(spec) {
+  const key = JSON.stringify(spec);
+  if (key === curKey) return;
+  curKey = key;
+  if (spec.kind === 'ideal') { makeIdeal(spec.d, spec.Lr); buildFluid(spec.d, spec.rf * spec.d); }
+  else {
+    [G.nx, G.ny, G.nz] = P001_INFO.dims; G.dx = P001_INFO.dx; G.base = P001_BASE; GEOM_INFO = P001_INFO;
+    buildFluid(spec.d, spec.rfmm);
+  }
+  // the drive slab must be one cell layer of the ostium cross-section (empty = no drive, double = flux counted twice)
+  if (!F.slab.length || F.slab.length > 1.4 * F.area) showErr(`駆動層の大きさが不正です（${F.slab.length} セル、断面 ${F.area.toFixed(0)} セル）。`);
+  setupBuffers();
+  R.T = 1000; R.omega = 2 * Math.PI / 1000; R.F0 = 0; R.warm = 0;
+  writeUniform(); resetFlow();
+  setView(spec.kind === 'ideal' ? 2 : 1);
+}
+
+// ---------------- one run: tune the stroke, then measure ----------------
+// ctl = true: control run. Same geometry and period, drive amplitude held at zero, no tuning;
+// what the sinus still loses (diffusion, the exhaled cross-flow, numerical error) is the floor under eta.
+function startRun(L0d, onDone, ctl = false) {
+  R.runId++;
+  if (qs.has('fake')) {
+    const e = 0.1 + 0.4 * Math.random(), series = Array.from({ length: NMEAS_C }, () => 0.007 + 0.003 * Math.random());
+    R.T = Math.min(16000, Math.max(200, Math.round(Math.PI * L0d * F.dCells / UPEAK)));
+    setTimeout(() => onDone(ctl ? { ctl: true, floor: series.reduce((a, v) => a + v, 0) / series.length, series, inRel: 0, n: NMEAS_C }
+                                : { eta: e, L0d: L0d * (0.95 + 0.1 * Math.random()), n: 3, onTarget: Math.random() > 0.3 }), 30);
+    return;
+  }
+  R.target = L0d * F.dCells * F.area;
+  const L0 = L0d * F.dCells;
+  R.T = Math.min(16000, Math.max(200, Math.round(Math.PI * L0 / UPEAK)));
+  R.omega = 2 * Math.PI / R.T;
+  R.F0 = ctl ? 0 : 0.75 * L0 * R.omega * R.omega;
+  R.cycle = 0; R.stepInCycle = 0; R.done = false; R.wait = false; R.phase = ctl ? 'control' : 'tune'; R.meas = []; R.results = []; R.Cprev = F.sinusCells; R.onDone = onDone;
+  R.warm = Math.round(Number(qs.get('warm')) || 1500); R.warmDone = false;
+  resetFlow(); writeUniform();
+  R.running = true;
+}
+// Phase 1 (tune): adjust the drive amplitude once per cycle, exactly at the cycle boundary.
+// Phase 2 (measure): once a cycle lands within TOL of the target, freeze the amplitude,
+// let one cycle settle, then measure NMEAS cycles at that fixed amplitude.
+const RUNIN = 4, NMEAS = 3, TOL = 0.08, DRIFT = 0.12, TUNE_MAX = 10, NMEAS_C = 6;
+function onCycle(k, inflow, outflow, Cc) {
+  if (R.done) return;
+  const Vex = F.sinusCells * (1 - Cc / R.Cprev);
+  const eta = inflow > 0 ? Vex / inflow : NaN;
+  const L0d = inflow / F.area / F.dCells;
+  R.Cprev = Cc;
+  if (!isFinite(Cc) || !isFinite(inflow)) { showErr('計算が発散しました。'); R.running = false; R.done = true; const cb = R.onDone; R.onDone = null; if (cb) cb(null); return; }
+  const err = inflow / R.target - 1;
+  let lab;
+  if (R.phase === 'control') {
+    if (k >= RUNIN) R.meas.push({ k, inflow, Vex, L0d });
+    lab = k < RUNIN ? '助走・往復なし' : `測定 ${R.meas.length}/${NMEAS_C}・往復なし`;
+  } else if (R.phase === 'tune') {
+    if ((k >= 2 && Math.abs(err) < TOL) || k >= TUNE_MAX) { R.phase = 'measure'; R.measFrom = Math.max(RUNIN, k + 2); lab = '振幅を固定'; }
+    else { const g = Math.max(0.4, Math.min(2.5, R.target / Math.max(inflow, 1e-6))); R.F0 = Math.min(1.5e-2, R.F0 * Math.pow(g, 0.9)); writeUniform(); lab = k < RUNIN ? '助走・振幅を調整中' : '振幅を調整中'; }
+  } else if (k >= R.measFrom) {
+    R.meas.push({ k, inflow, Vex, L0d });
+    lab = `測定 ${R.meas.length}/${NMEAS}`;
+    if (Math.abs(err) > DRIFT && k < TUNE_MAX + 4) { R.phase = 'tune'; R.meas = []; lab = 'ずれたので再調整'; }
+  } else lab = '落ち着くのを待つ';
+  if (qs.has('dbg')) console.log('cyc', k, R.phase, 'F0', R.F0.toExponential(3), 'in', inflow.toFixed(2), 'tgt', R.target.toFixed(2), 'eta', eta.toFixed(3), 'vex/tgt', (Vex / R.target).toFixed(4));
+  $('runv').textContent = R.phase === 'control'
+    ? `周期 ${k + 1}：往復なし、この周期に洞から減った量 ${(Vex / R.target * 100).toFixed(1)}%（往復させたときの流入量に対して。${lab}）`
+    : `周期 ${k + 1}：空気柱 ${(L0d * F.dCells / F.tubeLen).toFixed(2)}L（目標 ${(R.target / F.area / F.tubeLen).toFixed(2)}L）、この周期の混合率 ${isFinite(eta) ? (eta * 100).toFixed(0) + '%' : '—'}（${lab}）`;
+  if (R.meas.length >= (R.phase === 'control' ? NMEAS_C : NMEAS) || k >= CYCLES - 1) {
+    const ctl = R.phase === 'control';
+    R.done = true; R.running = false;
+    const m = R.meas.length ? R.meas : [{ inflow, Vex, L0d }];
+    const sIn = m.reduce((a, r) => a + r.inflow, 0), sEx = m.reduce((a, r) => a + r.Vex, 0);
+    const L0dm = m.reduce((a, r) => a + r.L0d, 0) / m.length;
+    const out = ctl
+      ? { ctl: true, floor: sEx / (m.length * R.target), series: m.map(r => r.Vex / R.target), inRel: sIn / (m.length * R.target), n: R.meas.length }
+      : { eta: Math.max(0, sEx / sIn), L0d: L0dm, n: R.meas.length, onTarget: Math.abs(sIn / m.length / R.target - 1) < TOL * 1.5, spread: m.length > 1 ? Math.max(...m.map(r => r.Vex / r.inflow)) - Math.min(...m.map(r => r.Vex / r.inflow)) : 0 };
+    const cb = R.onDone; R.onDone = null; if (cb) cb(out);
+  }
+}
+let jobs = [], jobTotal = 0, jobDone = 0;
+function runJobs(list, doneMsg) {
+  jobs = list.slice(); jobTotal = list.length; jobDone = 0;
+  enable(false);
+  const next = () => {
+    if (!jobs.length) { $('status').textContent = doneMsg; enable(true); $('prog').style.width = '100%'; return; }
+    const j = jobs.shift();
+    setGeometry(j.spec);
+    $('status').textContent = `${jobDone + 1}/${jobTotal}：${j.label}`;
+    $('prog').style.width = (jobDone / jobTotal * 100) + '%';
+    startRun(j.L0d, res => { jobDone++; j.after(res); setTimeout(next, 0); }, !!j.ctl);
+  };
+  next();
+}
+function enable(on) { $('bE1').disabled = !on; $('bE2').disabled = !on; $('bC').disabled = !on; }
+$('bStop').onclick = () => { R.running = false; R.done = true; R.runId++; jobs = []; enable(true); $('status').textContent = '停止しました。'; };
+
+// ---------------- lumped resonance + NO model (same as the integrated page) ----------------
+let HARM = 0;
+const C = { f: 150, P0: 100, d: 2.8, muc: 0, mucus: 50 };
+/*MODEL*/
+
+// ---------------- experiment 1 ----------------
+// lr: ostium length / diameter (default 0.8 = P001). Used with rfs=0 to re-measure the dead-space law (roadmap 1).
+const LR = +qs.get('lr') || 0.8, RFS = qs.has('rfs') ? qs.get('rfs').split(',').map(Number) : [0, 0.2, 0.4], XS = qs.has('xs') ? qs.get('xs').split(',').map(Number) : [1, 2, 4];
+const LD1 = Math.max(2, Math.round(LR * DC)) / DC;   // L/d of the lattice ostium in experiment 1
+const E1 = [];
+$('bE1').onclick = () => {
+  if (!window.__ready || R.running) return;
+  E1.length = 0; drawE1();
+  const list = [];
+  RFS.forEach((rf, si) => XS.forEach(x => {
+    const Lc = Math.max(2, Math.round(LR * DC));
+    list.push({ spec: { kind: 'ideal', d: 2.0, Lr: LR, rf }, L0d: x * Lc / DC, label: `丸み ${rf}d、空気柱 ${x}L`,
+      after: res => { if (res) { E1.push({ si, rf, x: res.L0d * F.dCells / F.tubeLen, eta: res.eta, target: x, n: res.n, onTarget: res.onTarget }); drawE1(); } } });
+  }));
+  runJobs(list, '検証1が完了しました。');
+};
+
+// ---------------- control: no drive ----------------
+// Diffusion alone through a tube of length L and radius r between C = 1 and C = 0 moves D·A·T / (L + (π/2)·r)
+// per period (the (π/2)·r is the access resistance of the two ends), with D = ν / 0.8 as in the engine.
+const EC = [];
+function diffFloor(T, L0cells) {
+  const D = UPEAK * F.dCells / P.Re / 0.8, r = F.dCells / 2;
+  return D * T / ((F.tubeLen + Math.PI / 2 * r) * L0cells);
+}
+$('bC').onclick = () => {
+  if (!window.__ready || R.running) return;
+  EC.length = 0; drawC();
+  const list = [];
+  XS.forEach(x => {
+    const Lc = Math.max(2, Math.round(LR * DC));
+    list.push({ spec: { kind: 'ideal', d: 2.0, Lr: LR, rf: 0 }, L0d: x * Lc / DC, ctl: true, label: `往復なし・周期は空気柱 ${x}L と同じ`,
+      after: res => { if (res) { EC.push({ x, T: R.T, floor: res.floor, series: res.series, inRel: res.inRel, diff: diffFloor(R.T, x * F.tubeLen) }); drawC(); } } });
+  });
+  runJobs(list, '対照が完了しました。');
+};
+function drawC() {
+  const pct = v => (v * 100).toFixed(1) + '%';
+  const e1 = x => { const p = E1.find(q => q.si === 0 && q.target === x); return p ? (p.eta * 100).toFixed(0) + '%' : '—'; };
+  $('tC').innerHTML = `<tr><th class="num">周期（空気柱 L₀/L 相当）</th><th class="num">往復なしで減った量</th><th>周期ごと（5〜10周期目）</th><th class="num">拡散だけの見積もり</th><th class="num">検証1の混合率（鋭い縁）</th></tr>` +
+    EC.map(p => `<tr><td class="num">${p.x}L（${p.T}ステップ）</td><td class="num"><b>${pct(p.floor)}</b></td><td>${p.series.map(v => (v * 100).toFixed(1)).join(' / ')}</td><td class="num">${pct(p.diff)}</td><td class="num">${e1(p.x)}</td></tr>`).join('');
+  if (EC.length === XS.length) {
+    const mx = Math.max(...EC.map(p => p.floor)), md = Math.max(...EC.map(p => p.diff));
+    $('vC').innerHTML = mx <= Math.max(0.02, 2 * md)
+      ? `往復させないときの減り方は最大 <b>${pct(mx)}</b> で、拡散だけの見積もり（${pct(md)}）と同程度です。測った混合率の底上げは小さく、検証1の値はほぼ往復によるものです。`
+      : `往復させないときでも最大 <b>${pct(mx)}</b> 減り、拡散だけの見積もり（${pct(md)}）を大きく上回ります。計算の誤差か鼻腔を流れる息の効果が混合率に乗っています。小さい混合率（空気柱 1L 前後）を式と比べるときは、この分を差し引いて考える必要があります。`;
+  }
+}
+
+// ---------------- experiment 2 ----------------
+const DS = [2.0, 2.8, 4.0], RF2 = [0, 1.0];
+const E2 = [];
+function noRatio(d, eta) {
+  C.d = d; SIN[0].d = d; SIN[0].V = P001_INFO.sinus_ml; SIN[0].L = 2.1;
+  return summarize(simulateNO(eta)).ratio;
+}
+$('bE2').onclick = () => {
+  if (!window.__ready || R.running) return;
+  E2.length = 0; drawE2();
+  const list = [];
+  RF2.forEach((rfmm, si) => DS.forEach(d => {
+    const L = lumped(P001_INFO.sinus_ml, d, 2.1, C.f, C.P0);
+    list.push({ spec: { kind: 'p001', d, rfmm }, L0d: Math.max(0.05, L.L0mm / d), label: `直径 ${d} mm・${rfmm ? '丸い縁' : '鋭い縁'}（空気柱 ${L.L0mm.toFixed(2)} mm）`,
+      after: res => {
+        if (!res) return;
+        const xAch = res.L0d * F.dCells / F.tubeLen;
+        const eta = Math.min(1, res.eta * (res.onTarget ? 1 : mixLaw(L.x, L.ld) / Math.max(1e-6, mixLaw(xAch, L.ld))));
+        E2.push({ si, d, rfmm, L0mm: L.L0mm, x: L.x, xAch, eta, raw: res.eta, onTarget: res.onTarget, ratio: noRatio(d, eta), law: mixLaw(L.x, L.ld), ratioLaw: noRatio(d, null) });
+        drawE2();
+      } });
+  }));
+  runJobs(list, '検証2が完了しました。');
+};
+
+// ---------------- charts ----------------
+const css = n => getComputedStyle(document.body).getPropertyValue(n).trim();
+const tip = $('tip');
+function showTip(html, cx, cy) {
+  tip.innerHTML = html; tip.style.display = 'block';
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let x = cx + 12 + scrollX, y = cy - th - 10 + scrollY;
+  if (x + tw > scrollX + innerWidth - 6) x = cx - tw - 12 + scrollX;
+  if (y < scrollY + 4) y = cy + 14 + scrollY;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+function mkChart(id, draw) {
+  const host = $(id), cv2 = document.createElement('canvas'); host.appendChild(cv2);
+  const st = { host, cv: cv2, hov: null };
+  cv2.addEventListener('pointermove', e => { const r = cv2.getBoundingClientRect(); st.hov = { x: e.clientX - r.left, y: e.clientY - r.top, cx: e.clientX, cy: e.clientY }; draw(); });
+  cv2.addEventListener('pointerleave', () => { st.hov = null; tip.style.display = 'none'; draw(); });
+  return st;
+}
+function prep(st, ratio) {
+  const w = st.host.clientWidth, h = Math.max(230, Math.round(w * ratio)), dpr = Math.min(devicePixelRatio || 1, 2);
+  st.cv.width = Math.round(w * dpr); st.cv.height = Math.round(h * dpr); st.cv.style.height = h + 'px';
+  const g = st.cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  g.font = '11px system-ui, -apple-system, sans-serif';
+  return { g, w, h };
+}
+const COLS = ['--s1', '--s2', '--s3'];
+function seriesLines(g, pts, X, Y, groups, labelFn, box) {
+  const labs = [];
+  groups.forEach(si => {
+    const s = pts.filter(p => p.si === si).sort((a, b) => a.xv - b.xv);
+    if (!s.length) return;
+    g.strokeStyle = css(COLS[si]); g.lineWidth = 2; g.lineJoin = 'round'; g.beginPath();
+    s.forEach((p, i) => i ? g.lineTo(X(p.xv), Y(p.yv)) : g.moveTo(X(p.xv), Y(p.yv))); g.stroke();
+    const l = s[s.length - 1]; labs.push({ y: Y(l.yv), x: X(l.xv), t: labelFn(si) });
+  });
+  // direct labels at the line ends, de-collided
+  labs.sort((a, b) => a.y - b.y);
+  for (let i = 1; i < labs.length; i++) if (labs[i].y - labs[i - 1].y < 13) labs[i].y = labs[i - 1].y + 13;
+  g.fillStyle = css('--text-secondary'); g.textAlign = 'left'; g.textBaseline = 'middle';
+  labs.forEach(l => g.fillText(l.t, Math.min(l.x + 8, box.x + box.w - g.measureText(l.t).width), l.y));
+}
+function dots(g, pts, X, Y, hov) {
+  let hit = null;
+  pts.forEach(p => { const x = X(p.xv), y = Y(p.yv);
+    if (hov && Math.hypot(hov.x - x, hov.y - y) < 14) hit = p;
+    g.fillStyle = css(COLS[p.si]); g.strokeStyle = css('--surface-1'); g.lineWidth = 2; g.beginPath(); g.arc(x, y, 5, 0, 7); g.fill(); g.stroke(); });
+  return hit;
+}
+const c1 = mkChart('cE1', drawE1);
+function drawE1() {
+  const { g, w, h } = prep(c1, 0.55);
+  const box = { x: 40, y: 16, w: w - 52 - 70, h: h - 16 - 38 };
+  const lx0 = Math.log10(0.7), lx1 = Math.log10(5.5);
+  const X = v => box.x + (Math.log10(Math.max(0.7, Math.min(5.5, v))) - lx0) / (lx1 - lx0) * box.w, Y = v => box.y + box.h - Math.min(1, v) / 0.8 * box.h;
+  g.strokeStyle = css('--grid'); g.fillStyle = css('--text-muted'); g.lineWidth = 1; g.textAlign = 'right'; g.textBaseline = 'middle';
+  for (const v of [0, .2, .4, .6, .8]) { const y = Y(v); g.beginPath(); g.moveTo(box.x, y + .5); g.lineTo(box.x + box.w, y + .5); g.stroke(); g.fillText(Math.round(v * 100) + '%', box.x - 5, y); }
+  g.textAlign = 'center'; g.textBaseline = 'top';
+  for (const v of [1, 2, 4]) g.fillText(v, X(v), box.y + box.h + 5);
+  g.strokeStyle = css('--axis'); g.beginPath(); g.moveTo(box.x, box.y + box.h + .5); g.lineTo(box.x + box.w, box.y + box.h + .5); g.stroke();
+  g.fillStyle = css('--text-secondary'); g.textAlign = 'right'; g.fillText('L₀/L（空気柱 ÷ 自然口の長さ、対数軸）', box.x + box.w, box.y + box.h + 20);
+  g.textAlign = 'left'; g.textBaseline = 'bottom'; g.fillText('混合率 η', 2, box.y - 2);
+  g.save(); g.strokeStyle = css('--text-secondary'); g.setLineDash([5, 4]); g.lineWidth = 1.5; g.beginPath();
+  for (let i = 0; i <= 120; i++) { const v = 10 ** (lx0 + i / 120 * (lx1 - lx0)); i ? g.lineTo(X(v), Y(mixLaw(v, LD1))) : g.moveTo(X(v), Y(mixLaw(v, LD1))); }
+  g.stroke(); g.restore();
+  const pts = E1.map(p => ({ ...p, xv: p.x, yv: p.eta }));
+  seriesLines(g, pts, X, Y, [0, 1, 2], si => ['鋭い縁', '丸み0.2d', '丸み0.4d'][si], { ...box, w: box.w + 70 });
+  const hit = dots(g, pts, X, Y, c1.hov);
+  if (hit) showTip(`<b>丸み ${hit.rf}d・L₀/L ${hit.x.toFixed(2)}</b><br><span class="m">混合率（3D）</span> ${(hit.eta * 100).toFixed(0)}%<br><span class="m">これまでの式</span> ${(mixLaw(hit.x, LD1) * 100).toFixed(0)}%`, c1.hov.cx, c1.hov.cy);
+  else if (c1.hov) tip.style.display = 'none';
+  $('t1').innerHTML = `<tr><th>縁の丸み</th><th class="num">目標 L₀/L</th><th class="num">得られた L₀/L</th><th class="num">混合率（3D）</th><th class="num">これまでの式</th></tr>` +
+    E1.map(p => `<tr><td><span class="sw" style="background:var(${COLS[p.si]})"></span>${p.rf ? '丸み ' + p.rf + 'd' : '鋭い縁'}</td><td class="num">${p.target}</td><td class="num">${p.x.toFixed(2)}${p.onTarget ? '' : '（届かず）'}</td><td class="num"><b>${(p.eta * 100).toFixed(0)}%</b></td><td class="num">${(mixLaw(p.x, LD1) * 100).toFixed(0)}%</td></tr>`).join('');
+  if (E1.length === RFS.length * XS.length) {
+    const at = (si, x) => { const p = E1.find(q => q.si === si && q.target === x); return p ? p.eta : NaN; };
+    const d1 = XS.map(x => at(2, x) - at(0, x)), mean = d1.reduce((a, b) => a + b, 0) / d1.length;
+    const verdict = mean < -0.05 ? '見込みA（流れがはがれにくく、入れ替わりが減る）が勝ちました。' : mean > 0.05 ? '見込みB（まっすぐな死腔が短くなり、入れ替わりが増える）が勝ちました。' : '2つの効果がほぼ打ち消し合い、縁の丸みは混合率をあまり変えません。';
+    $('v1').innerHTML = `縁を全体に丸くすると、混合率は空気柱 1L・2L・4L でそれぞれ <b>${d1.map(v => (v > 0 ? '+' : '') + (v * 100).toFixed(0)).join('・')} ポイント</b> 変わりました。${verdict}`;
+  }
+}
+const c2 = mkChart('cE2', drawE2);
+function drawE2() {
+  const { g, w, h } = prep(c2, 0.5);
+  const box = { x: 40, y: 16, w: w - 52 - 70, h: h - 16 - 38 };
+  const ymax = Math.max(8, ...E2.map(p => p.ratio)) * 1.15;
+  const X = v => box.x + (v - 1.7) / (4.3 - 1.7) * box.w, Y = v => box.y + box.h - v / ymax * box.h;
+  g.strokeStyle = css('--grid'); g.fillStyle = css('--text-muted'); g.lineWidth = 1; g.textAlign = 'right'; g.textBaseline = 'middle';
+  const step = ymax > 20 ? 5 : 2;
+  for (let v = 0; v <= ymax; v += step) { const y = Y(v); g.beginPath(); g.moveTo(box.x, y + .5); g.lineTo(box.x + box.w, y + .5); g.stroke(); g.fillText(v + '倍', box.x - 5, y); }
+  g.textAlign = 'center'; g.textBaseline = 'top';
+  DS.forEach(v => g.fillText(v.toFixed(1), X(v), box.y + box.h + 5));
+  g.strokeStyle = css('--axis'); g.beginPath(); g.moveTo(box.x, box.y + box.h + .5); g.lineTo(box.x + box.w, box.y + box.h + .5); g.stroke();
+  g.fillStyle = css('--text-secondary'); g.textAlign = 'right'; g.fillText('自然口の直径 (mm)', box.x + box.w, box.y + box.h + 20);
+  g.textAlign = 'left'; g.textBaseline = 'bottom'; g.fillText('ハミングで鼻のNOが何倍になるか', 2, box.y - 2);
+  const pts = E2.map(p => ({ ...p, xv: p.d, yv: p.ratio }));
+  seriesLines(g, pts, X, Y, [0, 1], si => ['鋭い縁', '丸い縁'][si], { ...box, w: box.w + 70 });
+  const hit = dots(g, pts, X, Y, c2.hov);
+  if (hit) showTip(`<b>直径 ${hit.d} mm・${hit.rfmm ? '丸い縁' : '鋭い縁'}</b><br><span class="m">空気柱</span> ${hit.L0mm.toFixed(2)} mm（${hit.x.toFixed(2)}L）<br><span class="m">混合率</span> ${(hit.eta * 100).toFixed(0)}%<br><span class="m">鼻のNO</span> ${hit.ratio.toFixed(1)}倍`, c2.hov.cx, c2.hov.cy);
+  else if (c2.hov) tip.style.display = 'none';
+  $('t2').innerHTML = `<tr><th>直径</th><th>縁</th><th class="num">空気柱</th><th class="num">混合率（3D）</th><th class="num">これまでの式</th><th class="num">鼻のNO</th></tr>` +
+    E2.map(p => `<tr><td>${p.d.toFixed(1)} mm</td><td><span class="sw" style="background:var(${COLS[p.si]})"></span>${p.rfmm ? '丸い' : '鋭い'}</td><td class="num">${p.L0mm.toFixed(2)} mm</td><td class="num"><b>${(p.eta * 100).toFixed(0)}%</b>${p.onTarget ? '' : '*'}</td><td class="num">${(p.law * 100).toFixed(0)}%</td><td class="num"><b>${p.ratio.toFixed(1)}倍</b></td></tr>`).join('') +
+    (E2.some(p => !p.onTarget) ? `<tr><td colspan="6" class="note">* 目標の空気柱に届かなかったので、これまでの式の比で補正</td></tr>` : '');
+  if (E2.length === DS.length * RF2.length) {
+    const r = (si, d) => E2.find(p => p.si === si && p.d === d).ratio;
+    const sharp = r(0, 4.0) - r(0, 2.0), round = r(1, 4.0) - r(1, 2.0);
+    const trend = v => v > 0.3 ? '大きい穴ほどNOが増える（実験と同じ向き）' : v < -0.3 ? '小さい穴ほどNOが増える（実験と逆）' : 'ほぼ変わらない';
+    $('v2').innerHTML = `直径を2.0 mmから4.0 mmに広げると、鋭い縁では ${r(0, 2.0).toFixed(1)}倍 → ${r(0, 4.0).toFixed(1)}倍 で<b>${trend(sharp)}</b>。丸い縁では ${r(1, 2.0).toFixed(1)}倍 → ${r(1, 4.0).toFixed(1)}倍 で<b>${trend(round)}</b>。` +
+      (sharp < -0.3 && round > 0.3 ? ' 縁の丸みで向きが逆転し、実験と合うようになりました。' : sharp < -0.3 && round < -0.3 ? ' 縁を丸くしても向きは逆転しません。食い違いの原因は縁の形だけではなさそうです。' : '');
+  }
+}
+addEventListener('resize', () => { drawE1(); drawE2(); });
+
+// ---------------- view ----------------
+[['3D', 0], ['断面（水平）', 1], ['断面（縦）', 2]].forEach(([n, v]) => {
+  const b = document.createElement('button'); b.textContent = n; b.className = v === VIEW ? 'on' : '';
+  b.onclick = () => setView(v);
+  $('viewSeg').appendChild(b);
+});
+function setView(v) { VIEW = v; [...$('viewSeg').children].forEach((x, i) => x.classList.toggle('on', i === v)); viewLegend(); }
+function viewLegend() {
+  $('hint').style.display = VIEW === 0 ? '' : 'none';
+  $('viewLegend').innerHTML = VIEW === 0
+    ? `<span><span class="sw" style="background:#5ad0ff"></span>洞に入った鼻腔の空気</span><span><span class="sw" style="background:#ff8c42"></span>鼻腔側に出たNO</span><span><span class="sw" style="background:#fff"></span>自然口</span>`
+    : `明るいほどNOが濃い（洞の初期値＝1）・灰色＝骨と組織。断面は自然口の中心を通ります`;
+}
+viewLegend();
+
+// ---------------- boot ----------------
+(async () => {
+  try {
+    await loadP001();
+    $('status').textContent = 'GPUを準備しています…';
+    setGeometryPre();
+    await initGPU();
+    curKey = ''; setGeometry({ kind: 'ideal', d: 2.0, Lr: LR, rf: 0.4 });
+    window.__ready = true;
+    requestAnimationFrame(frame);
+    $('status').textContent = '検証1か検証2を実行してください。';
+    drawE1(); drawE2();
+    if (qs.has('autoE1')) $('bE1').click();
+    if (qs.has('autoE2')) $('bE2').click();
+    if (qs.has('autoC')) $('bC').click();
+  } catch (e) { showErr(e.message || String(e)); }
+})();
+function setGeometryPre() { makeIdeal(2.0, LR); buildFluid(2.0, 0.8); }
+})();
+</script>
+</body>
+</html>
