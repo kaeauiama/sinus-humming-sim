@@ -13,6 +13,7 @@
 - 1 回目：作業リポジトリ ac7caf7 から書き出して公開側 77c762e。push 済み。
 - Pages：.github/workflows/pages.yml、配信元は「GitHub Actions」（ユーザーが設定）。**公開中（2026-11-22）：https://kaeauiama.github.io/sinus-humming-sim/** 。入り口と 4 ページが 200、旧版は 404 を確かめた。
 - 失敗した 2 回：1 回目は配信元が未設定で configure-pages が失敗。2 回目は upload-pages-artifact@v3 と deploy-pages@v4 の組み合わせで「No artifacts named github-pages were found」。Actions を最新の版（checkout v7、configure-pages v6、upload-pages-artifact v5、deploy-pages v5）に上げて成功（公開側 31f4776）。
+- 2 回目の書き出し（2026-11-25）：作業リポジトリ f0e119f → 公開側 e5f8be7（0.2 mm の格子の確認）。push 済み。Actions は deploy-pages@v5 で再び「No artifacts named github-pages」で失敗したが、upload の段は成功していて、成果物 github-pages（226 kB）は記録に残っていた。同じ版で前回は通っているので、GitHub 側の一時的なずれとみている。配信するページは変わっていないので、Pages は前の配信のまま 5 ページとも 200。ユーザーが再実行すると「Multiple artifacts named github-pages」で失敗した。同じ実行の中で再実行すると、成果物が 2 つになるため。そこで pages.yml を、GitHub の雛形と同じく作るジョブ（build）と配信するジョブ（deploy）に分けた。配信のジョブが失敗したときは「Re-run failed jobs」で配信だけをやり直す（全部をやり直すと、また 2 つになる）。
 
 ## 点検の結果（2026-11-22）
 

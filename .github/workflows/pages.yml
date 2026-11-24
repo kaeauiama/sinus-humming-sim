@@ -11,12 +11,14 @@ permissions:
 concurrency:
   group: pages
   cancel-in-progress: true
+# Two jobs, as in GitHub's starter workflows. With upload and deploy in one job, deploy-pages@v5 twice failed
+# with "No artifacts named github-pages were found" although the artifact had been uploaded (2026-11-22 and
+# 2026-11-25), and re-running that job uploads a second artifact into the same run ("Multiple artifacts").
+# Now the artifact is complete before deploy starts, and a failed deploy can be re-run on its own
+# ("Re-run failed jobs").
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
       - name: Collect the published pages
@@ -24,11 +26,16 @@ jobs:
           mkdir _site
           cp site/index.html _site/
           for f in hum-3d hum-map sinus3d-integrated verify-rounding; do cp "dist/$f.html" _site/; done
-      # versions checked 2026-11-22 (Node.js 24); upload-pages-artifact v3 + deploy-pages v4 failed with
-      # "No artifacts named github-pages were found"
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - id: deploy
         uses: actions/deploy-pages@v5
