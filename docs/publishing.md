@@ -11,7 +11,8 @@
 
 - リポジトリ：https://github.com/kaeauiama/sinus-humming-sim （public）。公開用フォルダは `../sinus-humming-sim-public`（git の作者は GitHub の noreply アドレス、リモート origin）。
 - 1 回目：作業リポジトリ ac7caf7 から書き出して公開側 77c762e。push 済み。
-- Pages：.github/workflows/pages.yml。配信元を「GitHub Actions」にするまで configure-pages の手順で失敗する（1 回目はそれで失敗）。URL は https://kaeauiama.github.io/sinus-humming-sim/ 。
+- Pages：.github/workflows/pages.yml、配信元は「GitHub Actions」（ユーザーが設定）。**公開中（2026-11-22）：https://kaeauiama.github.io/sinus-humming-sim/** 。入り口と 4 ページが 200、旧版は 404 を確かめた。
+- 失敗した 2 回：1 回目は配信元が未設定で configure-pages が失敗。2 回目は upload-pages-artifact@v3 と deploy-pages@v4 の組み合わせで「No artifacts named github-pages were found」。Actions を最新の版（checkout v7、configure-pages v6、upload-pages-artifact v5、deploy-pages v5）に上げて成功（公開側 31f4776）。
 
 ## 点検の結果（2026-11-22）
 

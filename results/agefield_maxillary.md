@@ -104,3 +104,37 @@ uses the same shape, the sinus moved to x = 26.97 mm to keep the 2.1 mm ostium, 
 cells, 1600 cycles in 213 s, stroke 0.93 × target throughout. The sinus interior hardly changed: 68.2 % exchanged at
 10 s (first run 67.5 %), sd/mean 0.13 at 400 cycles and 0.04 at 1000, the mixing efficiency again rising to 1.42 × by
 cycle 1500. dist/hum-3d.html now uses this run.
+
+## Grid check at 0.2 mm (results/lbm/fict_max_020_150hz, 2026-11-25)
+
+Same fictional sinus and nasal cavity as v2 (geometry/build_fict.py 0.2: 2,794,164 fluid cells, 1,593,749 sinus cells,
+ostium 14 cells across, sinus centre x 27.07 mm), same settings (Re 300, through-flow 0.12, 150 Hz, 130 Pa, target
+L0/d 1.476; warm-up 4000 steps = the same physical time as 2000 at 0.4 mm). Page assembled at commit f48bcfd: the
+agefield kind now asks for the adapter's buffer limits and carries the sinus scalar sum into a second u32 (it wrapped
+above ~1.05 M sinus cells; the patched 0.4 mm page reproduces the first 12 cycles of v2 exactly). 1500 cycles in
+4897 s on an RTX 3060, part of the time sharing the GPU with another computation. Stroke 0.90 × the target throughout.
+Compare: `python tools/agefield_compare.py results/lbm/fict_max_040_150hz_v2 results/lbm/fict_max_020_150hz`.
+
+| cycle | time | eta 0.4 mm (× start) | eta 0.2 mm (× start) | exchanged 0.4 / 0.2 mm | one box at the start rate (0.2 mm) |
+|---|---|---|---|---|---|
+| 50 | 0.33 s | 0.354 (1.00) | 0.368 (1.00) | 3.3 / 3.3 % | 3.3 % |
+| 200 | 1.33 s | 0.362 (1.02) | 0.376 (1.02) | 12.5 / 12.7 % | 12.4 % |
+| 400 | 2.67 s | 0.371 (1.05) | 0.375 (1.02) | 23.6 / 23.7 % | 23.3 % |
+| 700 | 4.67 s | 0.393 (1.11) | 0.375 (1.02) | 38.3 / 37.7 % | 37.1 % |
+| 1000 | 6.67 s | 0.426 (1.20) | 0.375 (1.02) | 50.9 / 49.1 % | 48.4 % |
+| 1500 | 10.0 s | 0.504 (1.42) | 0.376 (1.02) | 68.2 / 63.7 % | 62.9 % |
+
+Unevenness (sd / mean) at 0.2 mm: 4.46 (10 cycles), 1.39 (50), 0.69 (100), 0.32 (200), 0.15 (400), 0.05 (1000),
+0.02 (1500); the far bands stay 1–3 points fresher than the near ones up to 1500 cycles (0.4 mm: within 1 point).
+
+### Reading
+
+- **The rise of the mixing efficiency in the fictional shape was numerical.** At 0.2 mm the efficiency stays at
+  1.02 × its start for all 1500 cycles, as in P001; at 0.4 mm it rose to 1.42 ×. A physical spin-up would remain on
+  the finer grid. The 0.4 mm grid (ostium 7 cells across) is too coarse for 10-s runs in this smooth sinus.
+- At 0.2 mm the sinus is a single well-mixed box at its starting rate (63.7 % at 10 s, box 62.9 %), like P001.
+- The early-cycle efficiency differs by 4 % between the grids (0.368 vs 0.354), the size of the grid error of the
+  mixing law fitted at 0.4 mm. Mixing within 2–3 s is unchanged.
+- Not tested: whether the drift after 2000 cycles (methods.md pitfall 9) also goes away at 0.2 mm.
+- dist/hum-3d.html still uses the 0.4 mm v2 snapshots for the colour pattern only (the amounts come from the model);
+  the pattern of the two grids agrees within a few points, so the page is not changed.

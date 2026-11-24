@@ -47,6 +47,20 @@ elif kind == 'agefield':
     a = "R.cycle++; R.stepInCycle = 0; R.wait = true;"
     assert funcs.count(a) == 1, a
     funcs = funcs.replace(a, a + " { const h = snapHook(enc, R.cycle - 1); if (h) after.push(h); }")
+    # finer grids (0.2 mm: ~2.8 M fluid cells, 19 * 4 * nf ~ 210 MB per buffer) need more than the 420k-cell
+    # request of the engine; the device is made before the geometry is read, so ask for what the adapter allows
+    a = "const need = 19 * 4 * 420000;"
+    assert funcs.count(a) == 1, a
+    funcs = funcs.replace(a, "const need = Math.min(adapter.limits.maxStorageBufferBindingSize, adapter.limits.maxBufferSize);")
+    # the sinus scalar sum is fixed point (c * 4096) in one u32: it wraps above ~1.05 M sinus cells (0.2 mm has
+    # 1.6 M). Carry into a second word; the JS side adds it back.
+    a = "if (li == 0u) { atomicAdd(&csum[0], acc[0]); }"
+    assert wgsl.count(a) == 1, a
+    wgsl = wgsl.replace(a, "if (li == 0u) { let old = atomicAdd(&csum[0], acc[0]); if (old + acc[0] < old) { atomicAdd(&csum[1], 1u); } }")
+    a = "onCycle(cycle, st[0], st[1], cs[0] / FIX);"
+    assert funcs.count(a) == 1, a
+    funcs = funcs.replace(a, "onCycle(cycle, st[0], st[1], (cs[0] + cs[1] * 4294967296) / FIX);")
+    reps[1] = ('/*WGSL*/', wgsl)
     reps += [('/*LOADGEOM*/', p['loadGeometry']), ('/*FUNCS*/', funcs)]
 elif kind == 'rounding':
     # the rounding page brings its own buildFluid (with edge fillets); drop the engine's copy
